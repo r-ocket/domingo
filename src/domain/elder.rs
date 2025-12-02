@@ -39,6 +39,7 @@ pub struct Elder {
     pub id: Uuid,
     pub caregiver_id: Uuid,
     pub name: String,
+    pub relationship: String,
     pub phone_number: String,
     pub timezone: String,
     pub language: String,
@@ -51,6 +52,8 @@ pub struct Elder {
 #[derive(Debug, Clone, Deserialize)]
 pub struct CreateElderRequest {
     pub name: String,
+    #[serde(default = "default_relationship")]
+    pub relationship: String,
     pub phone_number: String,
     #[serde(default = "default_timezone")]
     pub timezone: String,
@@ -59,17 +62,22 @@ pub struct CreateElderRequest {
 }
 
 fn default_timezone() -> String {
-    "America/New_York".to_string()
+    "America/Mexico_City".to_string()
 }
 
 fn default_language() -> String {
-    "en".to_string()
+    "es".to_string()
+}
+
+fn default_relationship() -> String {
+    "familiar".to_string()
 }
 
 /// Request to update elder profile
 #[derive(Debug, Clone, Deserialize)]
 pub struct UpdateElderRequest {
     pub name: Option<String>,
+    pub relationship: Option<String>,
     pub phone_number: Option<String>,
     pub timezone: Option<String>,
     pub language: Option<String>,

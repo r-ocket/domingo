@@ -26,11 +26,11 @@ impl ElderRepository {
         let row = client
             .query_one(
                 r#"
-                INSERT INTO elders (id, caregiver_id, name, phone_number, timezone, language, status, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                RETURNING id, caregiver_id, name, phone_number, timezone, language, status, created_at, updated_at
+                INSERT INTO elders (id, caregiver_id, name, relationship, phone_number, timezone, language, status, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                RETURNING id, caregiver_id, name, relationship, phone_number, timezone, language, status, created_at, updated_at
                 "#,
-                &[&id, &caregiver_id, &req.name, &req.phone_number, &req.timezone, &req.language, &"active", &now, &now],
+                &[&id, &caregiver_id, &req.name, &req.relationship, &req.phone_number, &req.timezone, &req.language, &"active", &now, &now],
             )
             .await?;
         
@@ -44,7 +44,7 @@ impl ElderRepository {
         let row = client
             .query_opt(
                 r#"
-                SELECT id, caregiver_id, name, phone_number, timezone, language, status, created_at, updated_at
+                SELECT id, caregiver_id, name, COALESCE(relationship, 'familiar') as relationship, phone_number, timezone, language, status, created_at, updated_at
                 FROM elders WHERE id = $1
                 "#,
                 &[&id],
@@ -65,7 +65,7 @@ impl ElderRepository {
         let row = client
             .query_opt(
                 r#"
-                SELECT id, caregiver_id, name, phone_number, timezone, language, status, created_at, updated_at
+                SELECT id, caregiver_id, name, COALESCE(relationship, 'familiar') as relationship, phone_number, timezone, language, status, created_at, updated_at
                 FROM elders WHERE phone_number = $1 OR phone_number = $2
                 "#,
                 &[&phone, &normalized],
@@ -76,21 +76,42 @@ impl ElderRepository {
         Ok(row_to_elder(&row))
     }
     
-    /// Find elder by caregiver ID
+    /// Find elder by caregiver ID (returns first one - use list_by_caregiver for multiple)
     pub async fn find_by_caregiver(pool: &PostgresPool, caregiver_id: Uuid) -> DomainResult<Option<Elder>> {
         let client = pool.get().await?;
         
         let row = client
             .query_opt(
                 r#"
-                SELECT id, caregiver_id, name, phone_number, timezone, language, status, created_at, updated_at
+                SELECT id, caregiver_id, name, COALESCE(relationship, 'familiar') as relationship, phone_number, timezone, language, status, created_at, updated_at
                 FROM elders WHERE caregiver_id = $1
+                ORDER BY created_at ASC
+                LIMIT 1
                 "#,
                 &[&caregiver_id],
             )
             .await?;
         
         Ok(row.map(|r| row_to_elder(&r)))
+    }
+    
+    /// List all elders for a caregiver (supports multiple elders per caregiver)
+    #[allow(dead_code)]
+    pub async fn list_by_caregiver(pool: &PostgresPool, caregiver_id: Uuid) -> DomainResult<Vec<Elder>> {
+        let client = pool.get().await?;
+        
+        let rows = client
+            .query(
+                r#"
+                SELECT id, caregiver_id, name, COALESCE(relationship, 'familiar') as relationship, phone_number, timezone, language, status, created_at, updated_at
+                FROM elders WHERE caregiver_id = $1
+                ORDER BY created_at ASC
+                "#,
+                &[&caregiver_id],
+            )
+            .await?;
+        
+        Ok(rows.iter().map(row_to_elder).collect())
     }
     
     /// Update elder
@@ -104,6 +125,7 @@ impl ElderRepository {
         let now = Utc::now();
         
         let name = req.name.as_ref().unwrap_or(&current.name);
+        let relationship = req.relationship.as_ref().unwrap_or(&current.relationship);
         let phone_number = req.phone_number.as_ref().unwrap_or(&current.phone_number);
         let timezone = req.timezone.as_ref().unwrap_or(&current.timezone);
         let language = req.language.as_ref().unwrap_or(&current.language);
@@ -113,11 +135,11 @@ impl ElderRepository {
             .query_one(
                 r#"
                 UPDATE elders 
-                SET name = $2, phone_number = $3, timezone = $4, language = $5, status = $6, updated_at = $7
+                SET name = $2, relationship = $3, phone_number = $4, timezone = $5, language = $6, status = $7, updated_at = $8
                 WHERE id = $1
-                RETURNING id, caregiver_id, name, phone_number, timezone, language, status, created_at, updated_at
+                RETURNING id, caregiver_id, name, COALESCE(relationship, 'familiar') as relationship, phone_number, timezone, language, status, created_at, updated_at
                 "#,
-                &[&id, &name, &phone_number, &timezone, &language, &status, &now],
+                &[&id, &name, &relationship, &phone_number, &timezone, &language, &status, &now],
             )
             .await?;
         
@@ -139,7 +161,7 @@ impl ElderRepository {
         let rows = client
             .query(
                 r#"
-                SELECT id, caregiver_id, name, phone_number, timezone, language, status, created_at, updated_at
+                SELECT id, caregiver_id, name, COALESCE(relationship, 'familiar') as relationship, phone_number, timezone, language, status, created_at, updated_at
                 FROM elders
                 ORDER BY created_at DESC
                 LIMIT $1 OFFSET $2
@@ -171,6 +193,7 @@ fn row_to_elder(row: &tokio_postgres::Row) -> Elder {
         id: row.get("id"),
         caregiver_id: row.get("caregiver_id"),
         name: row.get("name"),
+        relationship: row.get("relationship"),
         phone_number: row.get("phone_number"),
         timezone: row.get("timezone"),
         language: row.get("language"),
@@ -190,4 +213,3 @@ fn normalize_phone(phone: &str) -> String {
         digits
     }
 }
-

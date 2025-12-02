@@ -5,44 +5,44 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container">
+        <div class="page-container" x-data="adminDashboard()">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
                     <h1 class="page-title">Panel de Administrador</h1>
                     <p class="page-subtitle">Resumen del sistema y estadísticas</p>
-            </div>
+                </div>
             </header>
 
             <!-- Stats Grid -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <div class="stat-card">
-                        <div>
-                        <p class="stat-value">{{ total_caregivers }}</p>
+                    <div>
+                        <p class="stat-value" x-text="stats.total_caregivers ?? '—'"></p>
                         <p class="stat-label">Cuidadores</p>
                     </div>
                     <span class="stat-icon bg-sky-500/20">👤</span>
                 </div>
 
                 <div class="stat-card">
-                        <div>
-                        <p class="stat-value">{{ total_elders }}</p>
+                    <div>
+                        <p class="stat-value" x-text="stats.total_elders ?? '—'"></p>
                         <p class="stat-label">Adultos Mayores</p>
                     </div>
                     <span class="stat-icon bg-emerald-500/20">👴</span>
                 </div>
 
                 <div class="stat-card">
-                        <div>
-                        <p class="stat-value">{{ total_calls_today }}</p>
+                    <div>
+                        <p class="stat-value" x-text="stats.total_calls_today ?? '—'"></p>
                         <p class="stat-label">Llamadas Hoy</p>
                     </div>
                     <span class="stat-icon bg-purple-500/20">📞</span>
                 </div>
 
                 <div class="stat-card">
-                        <div>
-                        <p class="stat-value">{{ active_subscriptions }}</p>
+                    <div>
+                        <p class="stat-value" x-text="stats.active_subscriptions ?? '—'"></p>
                         <p class="stat-label">Suscripciones Activas</p>
                     </div>
                     <span class="stat-icon bg-primary-500/20">💳</span>
@@ -58,24 +58,23 @@
                         <a href="/admin/logs" class="btn btn-ghost btn-sm">Ver Todas</a>
                     </div>
                     <div class="space-y-3">
-                        {% for call in recent_calls %}
-                        <div class="flex items-center justify-between py-2 border-b border-surface-700/50 last:border-0">
-                            <div>
-                                <p class="text-sm text-stone-100">{{ call.elder_name }}</p>
-                                <p class="text-xs text-stone-500">{{ call.started_at | date(format="%b %d, %H:%M") }}</p>
+                        <template x-if="loading">
+                            <p class="text-center text-stone-500 py-4">Cargando...</p>
+                        </template>
+                        <template x-if="!loading && recentCalls.length === 0">
+                            <p class="text-center text-stone-500 py-4">Sin llamadas recientes</p>
+                        </template>
+                        <template x-for="call in recentCalls" :key="call.id">
+                            <div class="flex items-center justify-between py-2 border-b border-surface-700/50 last:border-0">
+                                <div>
+                                    <p class="text-sm text-stone-100" x-text="call.elder_name || 'Desconocido'"></p>
+                                    <p class="text-xs text-stone-500" x-text="formatDate(call.started_at)"></p>
+                                </div>
+                                <span x-show="call.status === 'completed'" class="badge badge-green">Completada</span>
+                                <span x-show="call.status === 'transferred'" class="badge badge-yellow">Transferida</span>
+                                <span x-show="!['completed', 'transferred'].includes(call.status)" class="badge badge-gray" x-text="call.status"></span>
                             </div>
-                            {% if call.status == "completed" %}
-                            <span class="badge badge-green">Completada</span>
-                            {% elif call.status == "transferred" %}
-                            <span class="badge badge-yellow">Transferida</span>
-                            {% else %}
-                            <span class="badge badge-gray">{{ call.status }}</span>
-                            {% endif %}
-                        </div>
-                        {% endfor %}
-                        {% if recent_calls is undefined or recent_calls | length == 0 %}
-                        <p class="text-center text-stone-500 py-4">Sin llamadas recientes</p>
-                        {% endif %}
+                        </template>
                     </div>
                 </div>
 
@@ -83,7 +82,7 @@
                 <div class="card">
                     <div class="card-header">
                         <h2 class="card-title">Estado del Sistema</h2>
-                            </div>
+                    </div>
                     <div class="space-y-3">
                         <div class="flex items-center justify-between py-2">
                             <span class="text-sm text-stone-300">Twilio API</span>
@@ -144,4 +143,50 @@
         </div>
     </main>
 </div>
+
+<script>
+function adminDashboard() {
+    return {
+        loading: true,
+        stats: {},
+        recentCalls: [],
+        
+        async init() {
+            await this.loadData();
+        },
+        
+        async loadData() {
+            this.loading = true;
+            try {
+                const [statsRes, callsRes] = await Promise.all([
+                    fetch('/api/admin/stats'),
+                    fetch('/api/admin/calls?limit=5')
+                ]);
+                
+                if (statsRes.ok) {
+                    this.stats = await statsRes.json();
+                }
+                
+                if (callsRes.ok) {
+                    const data = await callsRes.json();
+                    this.recentCalls = data.items || data || [];
+                }
+            } catch (e) {
+                console.error('Failed to load admin data:', e);
+            }
+            this.loading = false;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('es-MX', { 
+                month: 'short', 
+                day: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        }
+    }
+}
+</script>
 {% endblock %}

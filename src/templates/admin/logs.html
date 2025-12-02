@@ -5,31 +5,31 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container" x-data="{ tab: 'calls' }">
+        <div class="page-container" x-data="adminLogs()">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">System Logs</h1>
-                    <p class="page-subtitle">View all system activity</p>
+                    <h1 class="page-title">Registros del Sistema</h1>
+                    <p class="page-subtitle">Ver toda la actividad del sistema</p>
                 </div>
             </header>
 
             <!-- Tabs -->
             <div class="flex gap-1 mb-6 border-b border-surface-700/50">
-                <button @click="tab = 'calls'" 
+                <button @click="tab = 'calls'; loadCalls()" 
                         :class="tab === 'calls' ? 'border-b-2 border-primary-500 text-primary-400' : 'text-stone-400 hover:text-stone-100'"
                         class="px-4 py-2 text-sm font-medium transition-colors">
-                    Calls
+                    Llamadas
                 </button>
-                <button @click="tab = 'rides'" 
+                <button @click="tab = 'rides'; loadRides()" 
                         :class="tab === 'rides' ? 'border-b-2 border-primary-500 text-primary-400' : 'text-stone-400 hover:text-stone-100'"
                         class="px-4 py-2 text-sm font-medium transition-colors">
-                    Rides
+                    Viajes
                 </button>
-                <button @click="tab = 'reminders'" 
+                <button @click="tab = 'reminders'; loadReminders()" 
                         :class="tab === 'reminders' ? 'border-b-2 border-primary-500 text-primary-400' : 'text-stone-400 hover:text-stone-100'"
                         class="px-4 py-2 text-sm font-medium transition-colors">
-                    Reminders
+                    Recordatorios
                 </button>
             </div>
 
@@ -38,50 +38,47 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Elder</th>
-                            <th>Duration</th>
-                            <th>Status</th>
-                            <th>Tools</th>
+                            <th>Fecha</th>
+                            <th>Adulto Mayor</th>
+                            <th>Duración</th>
+                            <th>Estado</th>
+                            <th>Herramientas</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for call in calls %}
-                        <tr>
-                            <td class="text-stone-100">
-                                {{ call.started_at | date(format="%b %d, %Y %H:%M") }}
-                            </td>
-                            <td>{{ call.elder_name }}</td>
-                            <td class="font-mono text-sm">
-                                {% if call.duration_minutes %}{{ call.duration_minutes }} min{% else %}—{% endif %}
-                            </td>
-                            <td>
-                                {% if call.status == "completed" %}
-                                <span class="badge badge-green">Completed</span>
-                                {% elif call.status == "transferred" %}
-                                <span class="badge badge-yellow">Transferred</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ call.status }}</span>
-                                {% endif %}
+                        <template x-if="loading">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                        </template>
+                        <template x-if="!loading && calls.length === 0">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">No hay registros de llamadas.</td></tr>
+                        </template>
+                        <template x-for="call in calls" :key="call.id">
+                            <tr>
+                                <td class="text-stone-100" x-text="formatDate(call.started_at)"></td>
+                                <td x-text="call.elder_name || 'Desconocido'"></td>
+                                <td class="font-mono text-sm">
+                                    <span x-show="call.ended_at" x-text="formatDuration(call.started_at, call.ended_at)"></span>
+                                    <span x-show="!call.ended_at" class="text-stone-500">—</span>
                                 </td>
-                            <td>
-                                {% if call.tools_used %}
-                                <div class="flex flex-wrap gap-1">
-                                    {% for tool in call.tools_used %}
-                                    <span class="tag">{{ tool }}</span>
-                                    {% endfor %}
-                                </div>
-                                {% else %}
-                                <span class="text-stone-500">—</span>
-                                {% endif %}
+                                <td>
+                                    <span x-show="call.status === 'completed'" class="badge badge-green">Completada</span>
+                                    <span x-show="call.status === 'transferred'" class="badge badge-yellow">Transferida</span>
+                                    <span x-show="!['completed', 'transferred'].includes(call.status)" class="badge badge-gray" x-text="call.status"></span>
+                                </td>
+                                <td>
+                                    <template x-if="call.tools_used && call.tools_used.length > 0">
+                                        <div class="flex flex-wrap gap-1">
+                                            <template x-for="tool in call.tools_used" :key="tool">
+                                                <span class="tag" x-text="tool"></span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <span x-show="!call.tools_used || call.tools_used.length === 0" class="text-stone-500">—</span>
                                 </td>
                             </tr>
-                        {% endfor %}
+                        </template>
                     </tbody>
                 </table>
-                {% if calls is undefined or calls | length == 0 %}
-                <div class="data-table-empty">No call logs found.</div>
-                {% endif %}
             </div>
 
             <!-- Rides Tab -->
@@ -89,40 +86,38 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Elder</th>
-                            <th>Destination</th>
-                            <th>Status</th>
-                            <th>Fare</th>
+                            <th>Fecha</th>
+                            <th>Adulto Mayor</th>
+                            <th>Destino</th>
+                            <th>Estado</th>
+                            <th>Tarifa</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for ride in rides %}
-                        <tr>
-                            <td class="text-stone-100">
-                                {{ ride.requested_at | date(format="%b %d, %Y %H:%M") }}
-                            </td>
-                            <td>{{ ride.elder_name }}</td>
-                            <td>{{ ride.location_name }}</td>
-                            <td>
-                                {% if ride.status == "completed" %}
-                                <span class="badge badge-green">Completed</span>
-                                {% elif ride.status == "cancelled" %}
-                                <span class="badge badge-red">Cancelled</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ ride.status }}</span>
-                                {% endif %}
-                            </td>
-                            <td class="font-mono text-sm">
-                                {% if ride.fare %}${{ ride.fare }}{% else %}—{% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
+                        <template x-if="loading">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                        </template>
+                        <template x-if="!loading && rides.length === 0">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">No hay registros de viajes.</td></tr>
+                        </template>
+                        <template x-for="ride in rides" :key="ride.id">
+                            <tr>
+                                <td class="text-stone-100" x-text="formatDate(ride.requested_at)"></td>
+                                <td x-text="ride.elder_name || 'Desconocido'"></td>
+                                <td x-text="ride.destination_name || ride.destination_address || 'Desconocido'"></td>
+                                <td>
+                                    <span x-show="ride.status === 'completed'" class="badge badge-green">Completado</span>
+                                    <span x-show="ride.status === 'cancelled'" class="badge badge-red">Cancelado</span>
+                                    <span x-show="!['completed', 'cancelled'].includes(ride.status)" class="badge badge-gray" x-text="ride.status"></span>
+                                </td>
+                                <td class="font-mono text-sm">
+                                    <span x-show="ride.fare" x-text="'$' + ride.fare"></span>
+                                    <span x-show="!ride.fare" class="text-stone-500">—</span>
+                                </td>
+                            </tr>
+                        </template>
                     </tbody>
                 </table>
-                {% if rides is undefined or rides | length == 0 %}
-                <div class="data-table-empty">No ride logs found.</div>
-                {% endif %}
             </div>
 
             <!-- Reminders Tab -->
@@ -130,42 +125,114 @@
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Elder</th>
-                            <th>Medication</th>
-                            <th>Method</th>
-                            <th>Status</th>
+                            <th>Fecha</th>
+                            <th>Adulto Mayor</th>
+                            <th>Medicamento</th>
+                            <th>Método</th>
+                            <th>Estado</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for reminder in reminders %}
-                        <tr>
-                            <td class="text-stone-100">
-                                {{ reminder.ts | date(format="%b %d, %Y %H:%M") }}
-                            </td>
-                            <td>{{ reminder.elder_name }}</td>
-                            <td>{{ reminder.medication_name }}</td>
-                            <td>{{ reminder.delivery_method }}</td>
-                            <td>
-                                {% if reminder.status == "confirmed" %}
-                                <span class="badge badge-green">Confirmed</span>
-                                {% elif reminder.status == "delivered" %}
-                                <span class="badge badge-blue">Delivered</span>
-                                {% elif reminder.status == "no_answer" %}
-                                <span class="badge badge-yellow">No Answer</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ reminder.status }}</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
+                        <template x-if="loading">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                        </template>
+                        <template x-if="!loading && reminders.length === 0">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">No hay registros de recordatorios.</td></tr>
+                        </template>
+                        <template x-for="reminder in reminders" :key="reminder.id">
+                            <tr>
+                                <td class="text-stone-100" x-text="formatDate(reminder.scheduled_at || reminder.ts)"></td>
+                                <td x-text="reminder.elder_name || 'Desconocido'"></td>
+                                <td x-text="reminder.medication_name || 'Desconocido'"></td>
+                                <td x-text="reminder.delivery_method || 'Llamada'"></td>
+                                <td>
+                                    <span x-show="reminder.confirmed" class="badge badge-green">Confirmado</span>
+                                    <span x-show="reminder.status === 'sent' && !reminder.confirmed" class="badge badge-blue">Enviado</span>
+                                    <span x-show="reminder.status === 'no_answer'" class="badge badge-yellow">Sin Respuesta</span>
+                                    <span x-show="!['sent', 'no_answer'].includes(reminder.status) && !reminder.confirmed" class="badge badge-gray" x-text="reminder.status || 'Pendiente'"></span>
+                                </td>
+                            </tr>
+                        </template>
                     </tbody>
                 </table>
-                {% if reminders is undefined or reminders | length == 0 %}
-                <div class="data-table-empty">No reminder logs found.</div>
-                {% endif %}
             </div>
         </div>
     </main>
 </div>
+
+<script>
+function adminLogs() {
+    return {
+        tab: 'calls',
+        loading: true,
+        calls: [],
+        rides: [],
+        reminders: [],
+        
+        async init() {
+            await this.loadCalls();
+        },
+        
+        async loadCalls() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/admin/calls');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.calls = data.items || data || [];
+                }
+            } catch (e) {
+                console.error('Failed to load calls:', e);
+            }
+            this.loading = false;
+        },
+        
+        async loadRides() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/admin/rides');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.rides = data.items || data || [];
+                }
+            } catch (e) {
+                console.error('Failed to load rides:', e);
+            }
+            this.loading = false;
+        },
+        
+        async loadReminders() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/admin/reminders');
+                if (res.ok) {
+                    const data = await res.json();
+                    this.reminders = data.items || data || [];
+                }
+            } catch (e) {
+                console.error('Failed to load reminders:', e);
+            }
+            this.loading = false;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('es-MX', { 
+                month: 'short', 
+                day: 'numeric',
+                year: 'numeric',
+                hour: '2-digit',
+                minute: '2-digit'
+            });
+        },
+        
+        formatDuration(start, end) {
+            if (!start || !end) return '';
+            const ms = new Date(end) - new Date(start);
+            const mins = Math.round(ms / 60000);
+            return `${mins} min`;
+        }
+    }
+}
+</script>
 {% endblock %}

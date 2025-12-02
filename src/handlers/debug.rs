@@ -35,6 +35,8 @@ fn default_role() -> String {
 pub struct CreateDebugElderRequest {
     pub caregiver_id: Uuid,
     pub name: String,
+    #[serde(default = "default_relationship")]
+    pub relationship: String,
     pub phone_number: String,
     #[serde(default = "default_timezone")]
     pub timezone: String,
@@ -43,11 +45,15 @@ pub struct CreateDebugElderRequest {
 }
 
 fn default_timezone() -> String {
-    "America/New_York".to_string()
+    "America/Mexico_City".to_string()
 }
 
 fn default_language() -> String {
-    "en".to_string()
+    "es".to_string()
+}
+
+fn default_relationship() -> String {
+    "familiar".to_string()
 }
 
 /// Response for created caregiver
@@ -66,6 +72,7 @@ pub struct DebugElderResponse {
     pub id: Uuid,
     pub caregiver_id: Uuid,
     pub name: String,
+    pub relationship: String,
     pub phone_number: String,
     pub timezone: String,
     pub status: String,
@@ -142,6 +149,7 @@ pub async fn create_elder(
     // Create elder
     let create_req = CreateElderRequest {
         name: req.name.clone(),
+        relationship: req.relationship.clone(),
         phone_number: req.phone_number.clone(),
         timezone: req.timezone.clone(),
         language: req.language.clone(),
@@ -156,6 +164,7 @@ pub async fn create_elder(
         id: elder.id,
         caregiver_id: elder.caregiver_id,
         name: elder.name,
+        relationship: elder.relationship,
         phone_number: elder.phone_number,
         timezone: elder.timezone,
         status: elder.status.to_string(),
