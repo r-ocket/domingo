@@ -1,0 +1,22 @@
+<tr id="contact-{{ contact.id }}">
+    <td class="font-medium text-stone-100">{{ contact.name }}</td>
+    <td>{{ contact.relationship }}</td>
+    <td class="font-mono text-sm">{{ contact.phone }}</td>
+    <td>
+        {% if contact.is_emergency %}
+        <span class="badge badge-red">Emergency</span>
+        {% endif %}
+    </td>
+    <td class="data-table-actions">
+        <button hx-get="/elder/contacts/{{ contact.id }}/edit" 
+                hx-target="#edit-modal" 
+                hx-swap="innerHTML"
+                class="btn btn-ghost btn-sm">Edit</button>
+        <button hx-delete="/elder/contacts/{{ contact.id }}" 
+                hx-target="#contact-{{ contact.id }}" 
+                hx-swap="outerHTML"
+                hx-confirm="Delete this contact?"
+                class="btn btn-ghost btn-sm text-red-400 hover:text-red-300">Delete</button>
+    </td>
+</tr>
+

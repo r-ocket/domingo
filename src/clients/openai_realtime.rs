@@ -105,8 +105,8 @@ impl RealtimeSession {
                 modalities: vec!["text".to_string(), "audio".to_string()],
                 instructions: system_prompt.to_string(),
                 voice: "alloy".to_string(),
-                input_audio_format: "pcm16".to_string(),
-                output_audio_format: "pcm16".to_string(),
+            input_audio_format: "g711_ulaw".to_string(),
+            output_audio_format: "g711_ulaw".to_string(),
                 input_audio_transcription: Some(InputAudioTranscription {
                     model: "whisper-1".to_string(),
                 }),

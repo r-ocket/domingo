@@ -1,0 +1,42 @@
+<div x-data="{ open: true, scheduleCount: {{ med.schedules | length | default(value=1) }} }" x-show="open" class="modal-container" @keydown.escape.window="open = false">
+    <div class="modal-backdrop" @click="open = false"></div>
+    
+    <div class="modal">
+        <h2 class="modal-title">Edit Medication</h2>
+        
+        <form hx-put="/elder/medications/{{ med.id }}" 
+              hx-target="#medication-{{ med.id }}" 
+              hx-swap="outerHTML"
+              @htmx:after-request="if(event.detail.successful) { open = false }"
+              class="modal-body">
+            <div class="form-group">
+                <label class="form-label">Medication Name</label>
+                <input type="text" name="name" value="{{ med.name }}" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Dosage</label>
+                <input type="text" name="dosage" value="{{ med.dosage }}" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Instructions (optional)</label>
+                <textarea name="instructions" rows="2" class="form-textarea">{{ med.instructions | default(value="") }}</textarea>
+            </div>
+            <div class="form-group">
+                <label class="form-label">Schedule Times</label>
+                <div class="space-y-2 mt-2" id="schedule-inputs">
+                    {% for schedule in med.schedules %}
+                    <div class="flex gap-2">
+                        <input type="time" name="schedule_times[]" value="{{ schedule.time_of_day }}" required class="form-input flex-1">
+                    </div>
+                    {% endfor %}
+                </div>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" @click="open = false" class="btn btn-ghost">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+

@@ -1,128 +1,146 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="min-h-screen bg-slate-950">
+<div class="app-shell">
     {% include "partials/sidebar.html" %}
     
-    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
-        <div class="p-8">
-            <div class="mb-8">
-                <h1 class="text-2xl font-bold text-white">Billing & Subscription</h1>
-                <p class="text-slate-400 mt-1">Manage your subscription and payment details</p>
-            </div>
+    <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
+        <div class="page-container">
+            <!-- Page Header -->
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Billing</h1>
+                    <p class="page-subtitle">Manage your subscription and view usage</p>
+                </div>
+            </header>
 
-            <div class="max-w-2xl space-y-6">
-                <!-- Current Plan -->
-                <div class="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-                    <h2 class="text-lg font-semibold text-white mb-4">Current Plan</h2>
-                    
-                    {% if subscription %}
-                    <div class="flex items-center justify-between mb-4">
-                        <div>
-                            <p class="text-xl font-bold text-white">{{ subscription.plan_name }}</p>
-                            <p class="text-sm text-slate-400">
-                                {% if subscription.status == "active" %}
-                                Renews on {{ subscription.current_period_end }}
-                                {% else %}
-                                Status: {{ subscription.status }}
-                                {% endif %}
-                            </p>
-                        </div>
-                        <span class="badge" style="
-                            {% if subscription.status == 'active' %}
-                            background-color: rgb(16 185 129 / 0.2); color: rgb(52 211 153);
-                            {% elif subscription.status == 'past_due' %}
-                            background-color: rgb(245 158 11 / 0.2); color: rgb(251 191 36);
+            {% if subscription %}
+            <!-- Current Plan -->
+            <div class="card mb-6">
+                <div class="flex items-start justify-between">
+                    <div>
+                        <h2 class="text-lg font-display font-semibold text-stone-100 mb-1">Current Plan</h2>
+                        <p class="text-2xl font-display font-bold text-primary-400 mb-2">
+                            {% if subscription.plan == "monthly" %}$19/month{% else %}$190/year{% endif %}
+                        </p>
+                        <div class="flex items-center gap-2">
+                            {% if subscription.status == "active" %}
+                            <span class="badge badge-green">Active</span>
+                            {% elif subscription.status == "trialing" %}
+                            <span class="badge badge-blue">Trial</span>
+                            {% elif subscription.status == "past_due" %}
+                            <span class="badge badge-red">Past Due</span>
                             {% else %}
-                            background-color: rgb(239 68 68 / 0.2); color: rgb(248 113 113);
+                            <span class="badge badge-gray">{{ subscription.status }}</span>
                             {% endif %}
-                        ">{{ subscription.status }}</span>
-                    </div>
-                    
-                    <a href="{{ stripe_portal_url }}" class="btn btn-primary">Manage Subscription</a>
-                    {% else %}
-                    <div class="text-center py-8">
-                        <p class="text-slate-400 mb-4">No active subscription</p>
-                        <a href="/billing/subscribe" class="btn btn-primary">Subscribe Now</a>
-                    </div>
-                    {% endif %}
-                </div>
-
-                <!-- Pricing Plans -->
-                {% if not subscription %}
-                <div class="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-                    <h2 class="text-lg font-semibold text-white mb-6">Choose a Plan</h2>
-                    
-                    <div class="grid md:grid-cols-2 gap-6">
-                        <div class="p-6 bg-slate-800/50 rounded-xl border border-slate-700">
-                            <h3 class="text-lg font-semibold text-white">Basic</h3>
-                            <p class="text-3xl font-bold text-white mt-2">$29<span class="text-lg text-slate-400">/mo</span></p>
-                            <ul class="mt-6 space-y-3">
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> 1 Elder profile
-                                </li>
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> Unlimited calls
-                                </li>
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> Medication reminders
-                                </li>
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> Ride booking
-                                </li>
-                            </ul>
-                            <form action="/api/billing/create-checkout" method="POST" class="mt-6">
-                                <input type="hidden" name="price_id" value="price_basic">
-                                <button type="submit" class="btn btn-primary w-full">Choose Basic</button>
-                            </form>
-                        </div>
-                        
-                        <div class="p-6 bg-primary-900/20 rounded-xl border border-primary-500/30 relative">
-                            <span class="absolute -top-3 left-1/2 -translate-x-1/2 px-3 py-1 bg-primary-600 text-white text-xs font-medium rounded-full">Popular</span>
-                            <h3 class="text-lg font-semibold text-white">Family</h3>
-                            <p class="text-3xl font-bold text-white mt-2">$49<span class="text-lg text-slate-400">/mo</span></p>
-                            <ul class="mt-6 space-y-3">
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> Up to 3 Elder profiles
-                                </li>
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> Everything in Basic
-                                </li>
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> Priority support
-                                </li>
-                                <li class="flex items-center gap-2 text-sm text-slate-300">
-                                    <span class="text-emerald-400">✓</span> Call transcripts
-                                </li>
-                            </ul>
-                            <form action="/api/billing/create-checkout" method="POST" class="mt-6">
-                                <input type="hidden" name="price_id" value="price_family">
-                                <button type="submit" class="btn btn-primary w-full">Choose Family</button>
-                            </form>
+                            <span class="text-sm text-stone-500">
+                                Renews {{ subscription.current_period_end | date(format="%B %d, %Y") }}
+                            </span>
                         </div>
                     </div>
-                </div>
-                {% endif %}
-
-                <!-- Usage -->
-                <div class="bg-slate-900 rounded-2xl border border-slate-800 p-6">
-                    <h2 class="text-lg font-semibold text-white mb-4">This Month's Usage</h2>
-                    <div class="grid grid-cols-3 gap-6">
-                        <div class="text-center">
-                            <p class="text-3xl font-bold text-white">{{ calls_count }}</p>
-                            <p class="text-sm text-slate-400">Calls</p>
-                        </div>
-                        <div class="text-center">
-                            <p class="text-3xl font-bold text-white">{{ reminders_count }}</p>
-                            <p class="text-sm text-slate-400">Reminders</p>
-                        </div>
-                        <div class="text-center">
-                            <p class="text-3xl font-bold text-white">{{ rides_count }}</p>
-                            <p class="text-sm text-slate-400">Rides</p>
-                        </div>
-                    </div>
+                    <form hx-post="/billing/portal" hx-swap="none" 
+                          @htmx:after-request="if(event.detail.xhr.response) window.location.href = JSON.parse(event.detail.xhr.response).url">
+                        <button type="submit" class="btn btn-secondary">Manage Subscription</button>
+                    </form>
                 </div>
             </div>
+
+            <!-- Usage Stats -->
+            <h2 class="text-lg font-display font-semibold text-stone-100 mb-4">Usage This Month</h2>
+            <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
+                <div class="stat-card">
+                    <div>
+                        <p class="stat-value">{{ usage.calls | default(value=0) }}</p>
+                        <p class="stat-label">Voice Calls</p>
+                    </div>
+                    <span class="stat-icon bg-purple-500/20">📞</span>
+                </div>
+                
+                <div class="stat-card">
+                    <div>
+                        <p class="stat-value">{{ usage.minutes | default(value=0) }}</p>
+                        <p class="stat-label">Call Minutes</p>
+                    </div>
+                    <span class="stat-icon bg-sky-500/20">⏱</span>
+                </div>
+                
+                <div class="stat-card">
+                    <div>
+                        <p class="stat-value">{{ usage.rides | default(value=0) }}</p>
+                        <p class="stat-label">Rides Booked</p>
+                    </div>
+                    <span class="stat-icon bg-emerald-500/20">🚗</span>
+                </div>
+            </div>
+
+            {% else %}
+            <!-- No Subscription - Show Pricing -->
+            <div class="text-center mb-8">
+                <h2 class="text-2xl font-display font-semibold text-stone-100 mb-2">Choose your plan</h2>
+                <p class="text-stone-400">Start with a 14-day free trial. Cancel anytime.</p>
+            </div>
+            
+            <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
+                <!-- Monthly Plan -->
+                <div class="card">
+                    <h3 class="text-lg font-display font-semibold text-stone-100 mb-2">Monthly</h3>
+                    <p class="text-3xl font-display font-bold text-stone-50 mb-1">$19<span class="text-lg text-stone-400">/mo</span></p>
+                    <p class="text-sm text-stone-500 mb-6">Billed monthly</p>
+                    
+                    <ul class="space-y-3 mb-6 text-sm text-stone-300">
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> Unlimited voice calls
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> Medication reminders
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> Ride booking
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> Emergency contacts
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> Call logs & transcripts
+                        </li>
+                    </ul>
+                    
+                    <form hx-post="/billing/checkout" hx-swap="none"
+                          @htmx:after-request="if(event.detail.xhr.response) window.location.href = JSON.parse(event.detail.xhr.response).url">
+                        <input type="hidden" name="plan" value="monthly">
+                        <button type="submit" class="btn btn-primary w-full">Start Free Trial</button>
+                    </form>
+                </div>
+                
+                <!-- Annual Plan -->
+                <div class="card border-primary-500/50">
+                    <div class="flex items-center gap-2 mb-2">
+                        <h3 class="text-lg font-display font-semibold text-stone-100">Annual</h3>
+                        <span class="badge badge-green">Save 17%</span>
+                    </div>
+                    <p class="text-3xl font-display font-bold text-stone-50 mb-1">$190<span class="text-lg text-stone-400">/yr</span></p>
+                    <p class="text-sm text-stone-500 mb-6">Billed annually</p>
+                    
+                    <ul class="space-y-3 mb-6 text-sm text-stone-300">
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> Everything in Monthly
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> 2 months free
+                        </li>
+                        <li class="flex items-center gap-2">
+                            <span class="text-emerald-400">✓</span> Priority support
+                        </li>
+                    </ul>
+                    
+                    <form hx-post="/billing/checkout" hx-swap="none"
+                          @htmx:after-request="if(event.detail.xhr.response) window.location.href = JSON.parse(event.detail.xhr.response).url">
+                        <input type="hidden" name="plan" value="annual">
+                        <button type="submit" class="btn btn-primary w-full">Start Free Trial</button>
+                    </form>
+                </div>
+            </div>
+            {% endif %}
         </div>
     </main>
 </div>

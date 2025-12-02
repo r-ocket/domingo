@@ -1,123 +1,86 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="min-h-screen bg-slate-950">
+<div class="app-shell">
     {% include "partials/sidebar.html" %}
     
-    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
-        <div class="p-8" x-data="caregiversAdmin()">
-            <div class="flex justify-between items-center mb-8">
+    <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
+        <div class="page-container">
+            <!-- Page Header -->
+            <header class="page-header">
                 <div>
-                    <h1 class="text-2xl font-bold text-white">Caregivers</h1>
-                    <p class="text-slate-400 mt-1">Manage all caregiver accounts</p>
+                    <h1 class="page-title">Caregivers</h1>
+                    <p class="page-subtitle">Manage all caregiver accounts</p>
                 </div>
-                <div class="flex gap-4">
-                    <input type="search" x-model="searchQuery" @input="search()" placeholder="Search by name or email..."
-                        class="px-4 py-2 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 w-64">
-                </div>
-            </div>
+            </header>
 
             <!-- Caregivers Table -->
-            <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
-                <table class="w-full">
-                    <thead class="bg-slate-800/50">
+            <div class="data-table-wrapper">
+                <table class="data-table">
+                    <thead>
                         <tr>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Name</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Email</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Role</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Subscription</th>
-                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Created</th>
-                            <th class="px-6 py-4 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
+                            <th>Name</th>
+                            <th>Email</th>
+                            <th>Elder</th>
+                            <th>Role</th>
+                            <th>Status</th>
+                            <th>Joined</th>
                         </tr>
                     </thead>
-                    <tbody class="divide-y divide-slate-800">
-                        <template x-for="caregiver in caregivers" :key="caregiver.id">
-                            <tr class="hover:bg-slate-800/30 transition-colors">
-                                <td class="px-6 py-4 text-sm font-medium text-white" x-text="caregiver.name"></td>
-                                <td class="px-6 py-4 text-sm text-slate-400" x-text="caregiver.email"></td>
-                                <td class="px-6 py-4">
-                                    <span class="badge" :class="caregiver.role === 'admin' ? 'badge-purple' : 'badge-blue'" x-text="caregiver.role"></span>
-                                </td>
-                                <td class="px-6 py-4">
-                                    <span class="badge" :class="{
-                                        'badge-green': caregiver.subscription_status === 'active',
-                                        'badge-yellow': caregiver.subscription_status === 'trialing',
-                                        'badge-red': !caregiver.subscription_status || caregiver.subscription_status === 'canceled'
-                                    }" x-text="caregiver.subscription_status || 'none'"></span>
-                                </td>
-                                <td class="px-6 py-4 text-sm text-slate-400" x-text="formatDate(caregiver.created_at)"></td>
-                                <td class="px-6 py-4 text-right space-x-2">
-                                    <button @click="viewCaregiver(caregiver)" class="text-sm text-primary-400 hover:text-primary-300">View</button>
-                                    <button @click="toggleRole(caregiver)" class="text-sm text-amber-400 hover:text-amber-300" x-text="caregiver.role === 'admin' ? 'Remove Admin' : 'Make Admin'"></button>
-                                </td>
-                            </tr>
-                        </template>
+                    <tbody>
+                        {% for caregiver in caregivers %}
+                        <tr>
+                            <td class="font-medium text-stone-100">{{ caregiver.name }}</td>
+                            <td class="text-mono text-sm">{{ caregiver.email }}</td>
+                            <td>
+                                {% if caregiver.elder_name %}
+                                <span class="text-stone-100">{{ caregiver.elder_name }}</span>
+                                {% else %}
+                                <span class="text-stone-500">Not set up</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if caregiver.role == "admin" %}
+                                <span class="badge badge-purple">Admin</span>
+                                {% else %}
+                                <span class="badge badge-gray">Caregiver</span>
+                                {% endif %}
+                            </td>
+                            <td>
+                                {% if caregiver.subscription_status == "active" %}
+                                <span class="badge badge-green">Active</span>
+                                {% elif caregiver.subscription_status == "trialing" %}
+                                <span class="badge badge-blue">Trial</span>
+                                {% else %}
+                                <span class="badge badge-yellow">{{ caregiver.subscription_status | default(value="Free") }}</span>
+                                {% endif %}
+                            </td>
+                            <td class="text-stone-400 text-sm">
+                                {{ caregiver.created_at | date(format="%b %d, %Y") }}
+                            </td>
+                        </tr>
+                        {% endfor %}
                     </tbody>
                 </table>
+                {% if caregivers is undefined or caregivers | length == 0 %}
+                <div class="data-table-empty">
+                    No caregivers found.
+                </div>
+                {% endif %}
             </div>
 
-            <!-- Pagination -->
-            <div x-show="totalPages > 1" class="mt-6 flex justify-center gap-2">
-                <button @click="page = Math.max(1, page - 1); load()" :disabled="page === 1" class="btn btn-ghost btn-sm">Previous</button>
-                <span class="px-4 py-2 text-sm text-slate-400" x-text="`Page ${page} of ${totalPages}`"></span>
-                <button @click="page = Math.min(totalPages, page + 1); load()" :disabled="page === totalPages" class="btn btn-ghost btn-sm">Next</button>
+            {% if pagination %}
+            <div class="pagination">
+                {% if pagination.has_prev %}
+                <a href="?page={{ pagination.page - 1 }}" class="btn btn-ghost btn-sm">← Previous</a>
+                {% endif %}
+                <span class="pagination-info">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
+                {% if pagination.has_next %}
+                <a href="?page={{ pagination.page + 1 }}" class="btn btn-ghost btn-sm">Next →</a>
+                {% endif %}
             </div>
+            {% endif %}
         </div>
     </main>
 </div>
-
-<script>
-function caregiversAdmin() {
-    return {
-        caregivers: [],
-        page: 1,
-        totalPages: 1,
-        searchQuery: '',
-        searchTimeout: null,
-        
-        async init() {
-            await this.load();
-        },
-        
-        async load() {
-            const params = new URLSearchParams({ page: this.page });
-            if (this.searchQuery) params.set('q', this.searchQuery);
-            const res = await fetch(`/api/admin/caregivers?${params}`);
-            const data = await res.json();
-            this.caregivers = data.items || [];
-            this.totalPages = data.total_pages || 1;
-        },
-        
-        search() {
-            clearTimeout(this.searchTimeout);
-            this.searchTimeout = setTimeout(() => {
-                this.page = 1;
-                this.load();
-            }, 300);
-        },
-        
-        async toggleRole(caregiver) {
-            const newRole = caregiver.role === 'admin' ? 'caregiver' : 'admin';
-            if (!confirm(`Change ${caregiver.name}'s role to ${newRole}?`)) return;
-            
-            await fetch(`/api/admin/caregivers/${caregiver.id}/role`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ role: newRole })
-            });
-            await this.load();
-        },
-        
-        viewCaregiver(caregiver) {
-            // Navigate to caregiver detail or open modal
-            window.location.href = `/admin/caregivers/${caregiver.id}`;
-        },
-        
-        formatDate(dateStr) {
-            if (!dateStr) return '-';
-            return new Date(dateStr).toLocaleDateString();
-        }
-    };
-}
-</script>
 {% endblock %}

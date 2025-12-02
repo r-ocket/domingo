@@ -1,0 +1,21 @@
+<tr id="location-{{ location.id }}">
+    <td class="font-medium text-stone-100">{{ location.name }}</td>
+    <td>{{ location.address }}</td>
+    <td>
+        {% if location.is_home %}
+        <span class="badge badge-green">Home</span>
+        {% endif %}
+    </td>
+    <td class="data-table-actions">
+        <button hx-get="/elder/locations/{{ location.id }}/edit" 
+                hx-target="#edit-modal" 
+                hx-swap="innerHTML"
+                class="btn btn-ghost btn-sm">Edit</button>
+        <button hx-delete="/elder/locations/{{ location.id }}" 
+                hx-target="#location-{{ location.id }}" 
+                hx-swap="outerHTML"
+                hx-confirm="Delete this location?"
+                class="btn btn-ghost btn-sm text-red-400 hover:text-red-300">Delete</button>
+    </td>
+</tr>
+

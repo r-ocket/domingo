@@ -1,0 +1,32 @@
+<div id="medication-{{ med.id }}" class="card">
+    <div class="flex items-start justify-between mb-3">
+        <div>
+            <h3 class="text-base font-display font-semibold text-stone-100">{{ med.name }}</h3>
+            <p class="text-sm text-stone-400">{{ med.dosage }}</p>
+        </div>
+        <span class="icon-box bg-purple-500/20 text-base">💊</span>
+    </div>
+    
+    <div class="flex flex-wrap gap-1.5 mb-3">
+        {% for schedule in med.schedules %}
+        <span class="tag">{{ schedule.time_of_day }}</span>
+        {% endfor %}
+    </div>
+    
+    {% if med.instructions %}
+    <p class="text-sm text-stone-500 mb-3">{{ med.instructions }}</p>
+    {% endif %}
+    
+    <div class="flex gap-2 pt-3 border-t border-surface-700/50">
+        <button hx-get="/elder/medications/{{ med.id }}/edit" 
+                hx-target="#edit-modal" 
+                hx-swap="innerHTML"
+                class="btn btn-ghost btn-sm">Edit</button>
+        <button hx-delete="/elder/medications/{{ med.id }}" 
+                hx-target="#medication-{{ med.id }}" 
+                hx-swap="outerHTML"
+                hx-confirm="Delete this medication?"
+                class="btn btn-ghost btn-sm text-red-400 hover:text-red-300">Delete</button>
+    </div>
+</div>
+

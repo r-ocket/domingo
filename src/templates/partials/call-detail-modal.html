@@ -1,0 +1,71 @@
+<div x-data="{ open: true }" x-show="open" class="modal-container" @keydown.escape.window="open = false">
+    <div class="modal-backdrop" @click="open = false"></div>
+    
+    <div class="modal modal-lg">
+        <div class="flex items-center justify-between mb-4">
+            <h2 class="modal-title mb-0">Call Details</h2>
+            <button @click="open = false" class="btn btn-ghost btn-icon">×</button>
+        </div>
+        
+        <div class="space-y-4">
+            <div class="grid grid-cols-2 gap-4">
+                <div>
+                    <p class="text-xs text-stone-500 uppercase tracking-wider mb-1">Date & Time</p>
+                    <p class="text-stone-100">{{ call.started_at | date(format="%B %d, %Y at %H:%M") }}</p>
+                </div>
+                <div>
+                    <p class="text-xs text-stone-500 uppercase tracking-wider mb-1">Duration</p>
+                    <p class="text-stone-100">
+                        {% if call.ended_at %}
+                        {{ call.duration_minutes }} minutes
+                        {% else %}
+                        In progress
+                        {% endif %}
+                    </p>
+                </div>
+                <div>
+                    <p class="text-xs text-stone-500 uppercase tracking-wider mb-1">Status</p>
+                    {% if call.status == "completed" %}
+                    <span class="badge badge-green">Completed</span>
+                    {% elif call.status == "transferred" %}
+                    <span class="badge badge-yellow">Transferred</span>
+                    {% else %}
+                    <span class="badge badge-gray">{{ call.status }}</span>
+                    {% endif %}
+                </div>
+                <div>
+                    <p class="text-xs text-stone-500 uppercase tracking-wider mb-1">Call ID</p>
+                    <p class="text-mono text-stone-400 text-sm">{{ call.twilio_call_sid }}</p>
+                </div>
+            </div>
+            
+            {% if call.tools_used %}
+            <div>
+                <p class="text-xs text-stone-500 uppercase tracking-wider mb-2">Tools Used</p>
+                <div class="flex flex-wrap gap-1">
+                    {% for tool in call.tools_used %}
+                    <span class="tag">{{ tool }}</span>
+                    {% endfor %}
+                </div>
+            </div>
+            {% endif %}
+            
+            {% if call.summary_text %}
+            <div>
+                <p class="text-xs text-stone-500 uppercase tracking-wider mb-2">Summary</p>
+                <p class="text-stone-300 text-sm">{{ call.summary_text }}</p>
+            </div>
+            {% endif %}
+            
+            {% if call.transcript %}
+            <div>
+                <p class="text-xs text-stone-500 uppercase tracking-wider mb-2">Transcript</p>
+                <div class="bg-surface-800 rounded p-4 max-h-60 overflow-y-auto">
+                    <p class="text-stone-300 text-sm whitespace-pre-wrap">{{ call.transcript }}</p>
+                </div>
+            </div>
+            {% endif %}
+        </div>
+    </div>
+</div>
+

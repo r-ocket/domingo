@@ -71,8 +71,15 @@ async fn handle_media_stream(
     let stream_sid = Arc::new(tokio::sync::RwLock::new(String::new()));
     let stream_sid_clone = stream_sid.clone();
     
-    // Channel for sending audio to Twilio
+    // Shared transcript accumulator
+    let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
+    let transcript_clone = transcript.clone();
+    
+    // Channel for sending audio to Twilio (OpenAI -> Twilio)
     let (twilio_tx, mut twilio_rx) = mpsc::channel::<String>(100);
+    
+    // Channel for sending audio to OpenAI (Twilio -> OpenAI)
+    let (openai_audio_tx, mut openai_audio_rx) = mpsc::channel::<String>(100);
     
     // Spawn task to handle outbound audio to Twilio
     let stream_sid_for_sender = stream_sid.clone();
@@ -96,41 +103,59 @@ async fn handle_media_stream(
     let session_id = session.id;
     let call_sid_clone = call_sid.clone();
     
-    // Spawn task to handle OpenAI responses
+    // Spawn task to handle OpenAI communication (both sending audio and receiving events)
     let mut openai_session = openai_session;
     let twilio_tx_clone = twilio_tx.clone();
     tokio::spawn(async move {
-        while let Some(event) = openai_session.recv_event().await {
-            match event {
-                RealtimeServerEvent::ResponseAudioDelta { delta } => {
-                    // Send audio to Twilio
-                    let _ = twilio_tx_clone.send(delta).await;
-                }
-                RealtimeServerEvent::ResponseFunctionCallArgumentsDone { call_id, name, arguments } => {
-                    tracing::info!("Function call: {} with args: {}", name, arguments);
-                    
-                    // Execute the function
-                    let result = execute_tool(
-                        &state_clone,
-                        elder_id,
-                        &name,
-                        &arguments,
-                        session_id,
-                        &call_sid_clone,
-                    ).await;
-                    
-                    // Record tool usage
-                    let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
-                    
-                    // Send result back to OpenAI
-                    if let Err(e) = openai_session.send_function_result(&call_id, result).await {
-                        tracing::error!("Failed to send function result: {}", e);
+        loop {
+            tokio::select! {
+                // Handle incoming audio from Twilio -> forward to OpenAI
+                Some(audio) = openai_audio_rx.recv() => {
+                    if let Err(e) = openai_session.send_audio(&audio).await {
+                        tracing::error!("Failed to send audio to OpenAI: {}", e);
+                        break;
                     }
                 }
-                RealtimeServerEvent::Error { error } => {
-                    tracing::error!("OpenAI error: {} - {}", error.r#type, error.message);
+                // Handle events from OpenAI
+                Some(event) = openai_session.recv_event() => {
+                    match event {
+                        RealtimeServerEvent::ResponseAudioDelta { delta } => {
+                            // Send audio to Twilio
+                            let _ = twilio_tx_clone.send(delta).await;
+                        }
+                        RealtimeServerEvent::ResponseAudioTranscriptDelta { delta } => {
+                            // Accumulate transcript
+                            let mut t = transcript_clone.lock().await;
+                            t.push_str(&delta);
+                        }
+                        RealtimeServerEvent::ResponseFunctionCallArgumentsDone { call_id, name, arguments } => {
+                            tracing::info!("Function call: {} with args: {}", name, arguments);
+                            
+                            // Execute the function
+                            let result = execute_tool(
+                                &state_clone,
+                                elder_id,
+                                &name,
+                                &arguments,
+                                session_id,
+                                &call_sid_clone,
+                            ).await;
+                            
+                            // Record tool usage
+                            let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
+                            
+                            // Send result back to OpenAI
+                            if let Err(e) = openai_session.send_function_result(&call_id, result).await {
+                                tracing::error!("Failed to send function result: {}", e);
+                            }
+                        }
+                        RealtimeServerEvent::Error { error } => {
+                            tracing::error!("OpenAI error: {} - {}", error.r#type, error.message);
+                        }
+                        _ => {}
+                    }
                 }
-                _ => {}
+                else => break,
             }
         }
     });
@@ -145,12 +170,9 @@ async fn handle_media_stream(
                             *stream_sid_clone.write().await = sid;
                             tracing::info!("Stream started for call {}", start.call_sid);
                         }
-                        TwilioStreamMessage::Media { .. } => {
-                            // Forward audio to OpenAI
-                            // Note: Twilio sends mulaw 8kHz, OpenAI expects pcm16 24kHz
-                            // In production, we'd need to resample
-                            // For now, send as-is (OpenAI may handle some formats)
-                            // TODO: Audio format conversion
+                        TwilioStreamMessage::Media { media, .. } => {
+                            // Forward audio to OpenAI (g711_ulaw format - no conversion needed)
+                            let _ = openai_audio_tx.send(media.payload.clone()).await;
                         }
                         TwilioStreamMessage::Stop { .. } => {
                             tracing::info!("Stream stopped");
@@ -172,13 +194,19 @@ async fn handle_media_stream(
         }
     }
     
-    // End the call session
+    // Get the accumulated transcript
+    let final_transcript = {
+        let t = transcript.lock().await;
+        if t.is_empty() { None } else { Some(t.clone()) }
+    };
+    
+    // End the call session with transcript
     let _ = CallService::end_session(
         &state.db,
         session.id,
         CallStatus::Completed,
         None,
-        None,
+        final_transcript,
     ).await;
     
     tracing::info!("Voice session ended for call {}", call_sid);

@@ -7,6 +7,7 @@ use tokio_postgres::NoTls;
 #[derive(Clone)]
 pub struct PostgresPool {
     pool: Pool,
+    database_url: String,
 }
 
 impl PostgresPool {
@@ -35,7 +36,28 @@ impl PostgresPool {
         
         tracing::info!("Database connection pool initialized");
         
-        Ok(Self { pool })
+        Ok(Self { 
+            pool,
+            database_url: database_url.to_string(),
+        })
+    }
+    
+    /// Run database migrations
+    /// 
+    /// This uses a separate connection to run migrations because refinery
+    /// requires ownership of the client.
+    pub async fn run_migrations(&self) -> anyhow::Result<()> {
+        // Create a dedicated connection for migrations
+        let (mut client, connection) = tokio_postgres::connect(&self.database_url, NoTls).await?;
+        
+        // Spawn the connection handler
+        tokio::spawn(async move {
+            if let Err(e) = connection.await {
+                tracing::error!("Migration connection error: {}", e);
+            }
+        });
+        
+        crate::migrations::run(&mut client).await
     }
     
     /// Get a connection from the pool

@@ -11,6 +11,7 @@ use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
 mod domain;
+mod migrations;
 mod services;
 mod repositories;
 mod clients;
@@ -38,6 +39,9 @@ impl AppState {
     pub async fn new(config: Config) -> anyhow::Result<Self> {
         // Initialize database pool
         let db = PostgresPool::new(&config.database_url).await?;
+        
+        // Run database migrations
+        db.run_migrations().await?;
         
         // Initialize external clients
         let twilio = Arc::new(clients::TwilioClient::new(

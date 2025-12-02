@@ -1,0 +1,44 @@
+<div x-data="{ open: true }" x-show="open" class="modal-container" @keydown.escape.window="open = false">
+    <div class="modal-backdrop" @click="open = false"></div>
+    
+    <div class="modal">
+        <h2 class="modal-title">Edit Contact</h2>
+        
+        <form hx-put="/elder/contacts/{{ contact.id }}" 
+              hx-target="#contact-{{ contact.id }}" 
+              hx-swap="outerHTML"
+              @htmx:after-request="if(event.detail.successful) { open = false }"
+              class="modal-body">
+            <div id="edit-form-errors"></div>
+            
+            <div class="form-group">
+                <label class="form-label">Name</label>
+                <input type="text" name="name" value="{{ contact.name }}" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Relationship</label>
+                <input type="text" name="relationship" value="{{ contact.relationship }}" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Phone Number</label>
+                <input type="tel" name="phone" value="{{ contact.phone }}" required class="form-input">
+            </div>
+            <div class="form-group">
+                <label class="form-label">Notes (optional)</label>
+                <textarea name="notes" rows="2" class="form-textarea">{{ contact.notes | default(value="") }}</textarea>
+            </div>
+            <div class="form-group">
+                <label class="flex items-center gap-3">
+                    <input type="checkbox" name="is_emergency" value="true" {% if contact.is_emergency %}checked{% endif %} class="form-checkbox">
+                    <span class="text-sm text-stone-300">Emergency Contact</span>
+                </label>
+            </div>
+            
+            <div class="modal-footer">
+                <button type="button" @click="open = false" class="btn btn-ghost">Cancel</button>
+                <button type="submit" class="btn btn-primary">Save Changes</button>
+            </div>
+        </form>
+    </div>
+</div>
+

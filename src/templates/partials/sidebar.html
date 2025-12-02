@@ -1,97 +1,96 @@
-<aside class="fixed inset-y-0 left-0 z-50 flex flex-col bg-slate-900 border-r border-slate-800 transition-all duration-300"
-       :class="sidebarOpen ? 'w-64' : 'w-20'">
+<aside class="sidebar" :class="sidebarOpen ? 'open' : 'collapsed'">
     <!-- Header -->
-    <div class="flex items-center justify-between h-16 px-4 border-b border-slate-800">
-        <a href="/" class="flex items-center gap-2">
+    <div class="sidebar-header">
+        <a href="/" class="sidebar-brand">
             <span class="text-2xl">🤖</span>
-            <span class="text-xl font-bold text-white" x-show="sidebarOpen" x-transition>Walle</span>
+            <span class="sidebar-brand-text" x-show="sidebarOpen" x-transition.opacity>Walle</span>
         </a>
-        <button @click="sidebarOpen = !sidebarOpen" class="p-2 text-slate-400 hover:text-white rounded-lg hover:bg-slate-800">
-            <svg x-show="sidebarOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+        <button @click="sidebarOpen = !sidebarOpen" class="sidebar-toggle">
+            <svg x-show="sidebarOpen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 19l-7-7 7-7" />
             </svg>
-            <svg x-show="!sidebarOpen" class="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+            <svg x-show="!sidebarOpen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
                 <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9 5l7 7-7 7" />
             </svg>
         </button>
     </div>
 
     <!-- Navigation -->
-    <nav class="flex-1 overflow-y-auto p-4 space-y-1">
-        <a href="/dashboard" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">🏠</span>
-            <span x-show="sidebarOpen" x-transition>Dashboard</span>
+    <nav class="sidebar-nav">
+        <a href="/dashboard" class="nav-item">
+            <span class="nav-item-icon">📊</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Dashboard</span>
         </a>
-        <a href="/elder/profile" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">👤</span>
-            <span x-show="sidebarOpen" x-transition>Elder Profile</span>
+        <a href="/elder/profile" class="nav-item">
+            <span class="nav-item-icon">👤</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Elder Profile</span>
         </a>
-        <a href="/elder/contacts" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">👥</span>
-            <span x-show="sidebarOpen" x-transition>Contacts</span>
+        <a href="/elder/contacts" class="nav-item">
+            <span class="nav-item-icon">👥</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Contacts</span>
         </a>
-        <a href="/elder/locations" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">📍</span>
-            <span x-show="sidebarOpen" x-transition>Locations</span>
+        <a href="/elder/locations" class="nav-item">
+            <span class="nav-item-icon">📍</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Locations</span>
         </a>
-        <a href="/elder/medications" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">💊</span>
-            <span x-show="sidebarOpen" x-transition>Medications</span>
+        <a href="/elder/medications" class="nav-item">
+            <span class="nav-item-icon">💊</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Medications</span>
         </a>
         
-        <div class="pt-4 mt-4 border-t border-slate-800">
-            <p class="px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider" x-show="sidebarOpen" x-transition>Logs</p>
+        <div class="sidebar-section">
+            <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Logs</p>
         </div>
         
-        <a href="/elder/logs/calls" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">📞</span>
-            <span x-show="sidebarOpen" x-transition>Call Logs</span>
+        <a href="/elder/logs/calls" class="nav-item">
+            <span class="nav-item-icon">📞</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Call Logs</span>
         </a>
-        <a href="/elder/logs/rides" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">🚗</span>
-            <span x-show="sidebarOpen" x-transition>Ride Logs</span>
+        <a href="/elder/logs/rides" class="nav-item">
+            <span class="nav-item-icon">🚗</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Ride Logs</span>
         </a>
-        <a href="/elder/logs/reminders" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">⏰</span>
-            <span x-show="sidebarOpen" x-transition>Reminders</span>
+        <a href="/elder/logs/reminders" class="nav-item">
+            <span class="nav-item-icon">⏰</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Reminders</span>
         </a>
         
-        <div class="pt-4 mt-4 border-t border-slate-800">
-            <a href="/billing" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-                <span class="text-lg">💳</span>
-                <span x-show="sidebarOpen" x-transition>Billing</span>
+        <div class="sidebar-section">
+            <a href="/billing" class="nav-item">
+                <span class="nav-item-icon">💳</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Billing</span>
             </a>
         </div>
         
         {% if is_admin %}
-        <div class="pt-4 mt-4 border-t border-slate-800">
-            <p class="px-3 mb-2 text-xs font-semibold text-slate-500 uppercase tracking-wider" x-show="sidebarOpen" x-transition>Admin</p>
-            <a href="/admin" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-                <span class="text-lg">📊</span>
-                <span x-show="sidebarOpen" x-transition>Admin Dashboard</span>
+        <div class="sidebar-section">
+            <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Admin</p>
+            <a href="/admin" class="nav-item">
+                <span class="nav-item-icon">📈</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Dashboard</span>
             </a>
-            <a href="/admin/caregivers" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-                <span class="text-lg">👤</span>
-                <span x-show="sidebarOpen" x-transition>Caregivers</span>
+            <a href="/admin/caregivers" class="nav-item">
+                <span class="nav-item-icon">👤</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Caregivers</span>
             </a>
-            <a href="/admin/elders" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-                <span class="text-lg">👴</span>
-                <span x-show="sidebarOpen" x-transition>Elders</span>
+            <a href="/admin/elders" class="nav-item">
+                <span class="nav-item-icon">👴</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Elders</span>
             </a>
-            <a href="/admin/logs" class="flex items-center gap-3 px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-                <span class="text-lg">📋</span>
-                <span x-show="sidebarOpen" x-transition>System Logs</span>
+            <a href="/admin/logs" class="nav-item">
+                <span class="nav-item-icon">📋</span>
+                <span x-show="sidebarOpen" x-transition.opacity>System Logs</span>
             </a>
         </div>
         {% endif %}
     </nav>
 
     <!-- Footer -->
-    <div class="p-4 border-t border-slate-800">
+    <div class="sidebar-footer">
         <button @click="fetch('/api/auth/logout', { method: 'POST' }).then(() => window.location.href = '/login')"
-                class="flex items-center gap-3 w-full px-3 py-2.5 text-sm font-medium text-slate-300 rounded-lg hover:bg-slate-800 hover:text-white transition-colors">
-            <span class="text-lg">🚪</span>
-            <span x-show="sidebarOpen" x-transition>Logout</span>
+                class="nav-item w-full">
+            <span class="nav-item-icon">🚪</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Logout</span>
         </button>
     </div>
 </aside>

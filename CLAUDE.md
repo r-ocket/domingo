@@ -586,6 +586,74 @@ controllers just render full page or fragments depending on ctx.is_htmx.
 
 ⸻
 
+6.3 htmx + alpine.js philosophy
+
+**grug-brained approach:**
+- htmx does the heavy lifting: server renders HTML, htmx swaps it in
+- alpine.js for minimal UI state only: modal open/close, form visibility, local toggles
+- NO complex client-side state management
+- NO vanilla JS fetch calls to JSON APIs
+- server is the source of truth, always
+
+**htmx patterns:**
+```html
+<!-- good: server renders the row, htmx swaps it -->
+<tr id="contact-{{ id }}">
+  <td>{{ name }}</td>
+  <td>
+    <button hx-delete="/elder/contacts/{{ id }}" hx-target="#contact-{{ id }}" hx-swap="outerHTML">
+      delete
+    </button>
+  </td>
+</tr>
+
+<!-- good: form posts to server, server returns new row -->
+<form hx-post="/elder/contacts" hx-target="#contacts-table" hx-swap="beforeend">
+  <input name="name" required>
+  <button type="submit">Add</button>
+</form>
+
+<!-- good: modal controlled by alpine, form posts via htmx -->
+<div x-data="{ open: false }">
+  <button @click="open = true">Add Contact</button>
+  <div x-show="open" x-cloak>
+    <form hx-post="/elder/contacts" hx-target="#contacts-table" hx-swap="beforeend" @htmx:after-request="open = false">
+      ...
+    </form>
+  </div>
+</div>
+```
+
+**alpine.js patterns:**
+```html
+<!-- good: simple UI state -->
+<div x-data="{ showModal: false, confirmDelete: false }">
+  <button @click="showModal = true">Open</button>
+  <div x-show="showModal">...</div>
+</div>
+
+<!-- bad: complex state management with fetch calls -->
+<div x-data="{ items: [], loading: false, async load() { this.items = await fetch(...).then(r => r.json()) } }">
+  <!-- don't do this - let htmx handle it -->
+</div>
+```
+
+**key rules:**
+1. server always renders HTML - full pages or fragments
+2. htmx swaps fragments into the DOM
+3. alpine.js only for: modals, dropdowns, tabs, form validation display
+4. use `hx-target` and `hx-swap` to surgically update the DOM
+5. use `@htmx:after-request` to close modals after successful submits
+6. avoid `hx-boost` on whole pages - be explicit about what gets swapped
+
+**common htmx targets:**
+- `#table-body` - append new rows
+- `#row-{id}` - replace/remove specific rows  
+- `#form-errors` - show validation errors
+- `this` - replace the element that triggered the request
+
+⸻
+
 7. domain + application
 
 7.1 domain models (sketch)
@@ -766,6 +834,40 @@ impl CaregiverRepository for PgCaregiverRepo {
 }
 
 no orm, just simple sql. everything else is analogous.
+
+⸻
+
+8.2 migrations (refinery)
+
+managed migrations using `refinery` crate with tokio-postgres support.
+
+**file naming:**
+```
+migrations/
+  V1__initial_schema.sql
+  V2__add_notifications.sql
+  V3__add_audit_logs.sql
+```
+
+- files must start with `V{version}__` (two underscores)
+- version numbers are sequential integers
+- migrations are embedded at compile time
+
+**running migrations:**
+
+migrations run automatically on app startup:
+```rust
+// in PostgresPool::run_migrations()
+let (mut client, connection) = tokio_postgres::connect(&self.database_url, NoTls).await?;
+crate::migrations::run(&mut client).await?;
+```
+
+**creating new migrations:**
+1. create `migrations/V{next_version}__{description}.sql`
+2. write SQL (up only - no down migrations for simplicity)
+3. rebuild the app - migrations are embedded at compile time
+
+refinery tracks applied migrations in a `refinery_schema_history` table.
 
 ⸻
 
