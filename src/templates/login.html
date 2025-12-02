@@ -12,10 +12,11 @@
         </div>
 
         <div class="auth-form">
-            <form hx-post="/login" 
+            <form hx-post="/api/auth/login" 
+                  hx-ext="json-enc"
                   hx-target="#form-errors" 
                   hx-swap="innerHTML"
-                  @htmx:after-request="if(event.detail.successful && !event.detail.xhr.response) window.location.href = '/dashboard'"
+                  @htmx:after-request="if(event.detail.successful) window.location.href = '/dashboard'"
                   class="space-y-4">
                 <div id="form-errors"></div>
                 

@@ -5,86 +5,175 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container" x-data="{ showModal: false, scheduleCount: 1 }">
+        <div class="page-container" x-data="medicationsPage('{{ elder_id | default(value='') }}')">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Medications</h1>
-                    <p class="page-subtitle">Manage medication schedules and reminders</p>
+                    <h1 class="page-title">Medicamentos</h1>
+                    <p class="page-subtitle">Administra horarios de medicamentos y recordatorios</p>
                 </div>
                 <div class="page-actions">
-                    <button @click="showModal = true; scheduleCount = 1" class="btn btn-primary">+ Add Medication</button>
-            </div>
+                    {% if elder_id %}
+                    <button @click="showModal = true; scheduleTimes = ['08:00']" class="btn btn-primary">+ Agregar Medicamento</button>
+                    {% endif %}
+                </div>
             </header>
 
+            {% if elder_id %}
             <!-- Medications Grid -->
-            <div id="medications-grid" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                {% for med in medications %}
-                {% include "partials/medication-card.html" %}
-                {% endfor %}
+            <template x-if="loading">
+                <div class="text-center text-stone-500 py-8">Cargando...</div>
+            </template>
+            <template x-if="!loading && medications.length === 0">
+                <div class="empty-state">
+                    <div class="empty-state-icon">💊</div>
+                    <h2 class="empty-state-title">No hay medicamentos</h2>
+                    <p class="empty-state-text">Agrega medicamentos para configurar recordatorios automáticos.</p>
+                    <button @click="showModal = true" class="btn btn-primary">+ Agregar Medicamento</button>
+                </div>
+            </template>
+            <div x-show="!loading && medications.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                <template x-for="med in medications" :key="med.id">
+                    <div class="card">
+                        <div class="flex justify-between items-start mb-3">
+                            <h3 class="font-semibold text-stone-100" x-text="med.name"></h3>
+                            <button @click="deleteMedication(med.id)" class="btn btn-ghost btn-sm text-red-400">×</button>
+                        </div>
+                        <p class="text-sm text-stone-400 mb-2" x-text="med.dosage"></p>
+                        <p x-show="med.instructions" class="text-xs text-stone-500 mb-3" x-text="med.instructions"></p>
+                        <div class="flex flex-wrap gap-1">
+                            <template x-for="time in (med.schedule_times || [])" :key="time">
+                                <span class="badge badge-primary text-xs" x-text="time"></span>
+                            </template>
+                        </div>
+                    </div>
+                </template>
             </div>
-            
-            {% if medications is undefined or medications | length == 0 %}
-            <div id="empty-state" class="empty-state">
-                <div class="empty-state-icon">💊</div>
-                <h2 class="empty-state-title">No medications yet</h2>
-                <p class="empty-state-text">Add medications to set up automated reminders.</p>
-                <button @click="showModal = true" class="btn btn-primary">+ Add Medication</button>
-            </div>
-            {% endif %}
 
             <!-- Add Modal -->
             <div x-show="showModal" x-cloak class="modal-container" @keydown.escape.window="showModal = false">
                 <div class="modal-backdrop" @click="showModal = false"></div>
                     
                 <div class="modal">
-                    <h2 class="modal-title">Add Medication</h2>
+                    <h2 class="modal-title">Agregar Medicamento</h2>
                     
-                    <form hx-post="/elder/medications" 
-                          hx-target="#medications-grid" 
-                          hx-swap="beforeend"
-                          @htmx:after-request="if(event.detail.successful) { showModal = false; document.getElementById('empty-state')?.remove(); }"
-                          class="modal-body">
+                    <form @submit.prevent="createMedication" class="modal-body">
                         <div class="form-group">
-                            <label class="form-label">Medication Name</label>
-                            <input type="text" name="name" required placeholder="e.g., Lipitor" class="form-input">
-                            </div>
+                            <label class="form-label">Nombre del Medicamento</label>
+                            <input type="text" x-model="form.name" required placeholder="ej. Lipitor" class="form-input">
+                        </div>
                         <div class="form-group">
-                            <label class="form-label">Dosage</label>
-                            <input type="text" name="dosage" required placeholder="e.g., 10mg, 2 pills" class="form-input">
-                            </div>
+                            <label class="form-label">Dosis</label>
+                            <input type="text" x-model="form.dosage" required placeholder="ej. 10mg, 2 pastillas" class="form-input">
+                        </div>
                         <div class="form-group">
-                            <label class="form-label">Instructions (optional)</label>
-                            <textarea name="instructions" rows="2" placeholder="e.g., Take with food" class="form-textarea"></textarea>
-                            </div>
+                            <label class="form-label">Instrucciones (opcional)</label>
+                            <textarea x-model="form.instructions" rows="2" placeholder="ej. Tomar con comida" class="form-textarea"></textarea>
+                        </div>
                         <div class="form-group">
-                            <label class="form-label">Schedule Times</label>
-                            <p class="form-hint">When should reminders be sent?</p>
+                            <label class="form-label">Horarios</label>
+                            <p class="form-hint">¿Cuándo se deben enviar los recordatorios?</p>
                             <div class="space-y-2 mt-2">
-                                <template x-for="i in scheduleCount" :key="i">
-                                        <div class="flex gap-2">
-                                        <input type="time" name="schedule_times[]" required class="form-input flex-1" value="08:00">
-                                        <button type="button" @click="scheduleCount--" x-show="scheduleCount > 1"
+                                <template x-for="(time, idx) in scheduleTimes" :key="idx">
+                                    <div class="flex gap-2">
+                                        <input type="time" x-model="scheduleTimes[idx]" required class="form-input flex-1">
+                                        <button type="button" @click="scheduleTimes.splice(idx, 1)" x-show="scheduleTimes.length > 1"
                                             class="btn btn-ghost btn-icon text-red-400">×</button>
-                                        </div>
-                                    </template>
-                                <button type="button" @click="scheduleCount++" class="btn btn-link text-sm">
-                                        + Add Another Time
-                                    </button>
-                                </div>
+                                    </div>
+                                </template>
+                                <button type="button" @click="scheduleTimes.push('12:00')" class="btn btn-link text-sm">
+                                    + Agregar Otro Horario
+                                </button>
                             </div>
+                        </div>
                             
                         <div class="modal-footer">
-                            <button type="button" @click="showModal = false" class="btn btn-ghost">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Save</button>
-                            </div>
-                        </form>
+                            <button type="button" @click="showModal = false" class="btn btn-ghost">Cancelar</button>
+                            <button type="submit" class="btn btn-primary" :disabled="saving">
+                                <span x-show="!saving">Guardar</span>
+                                <span x-show="saving">Guardando...</span>
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
-
-            <!-- Edit Modal container -->
-            <div id="edit-modal"></div>
+            {% else %}
+            <div class="card text-center py-12">
+                <div class="text-4xl mb-4">💊</div>
+                <p class="text-stone-400 mb-4">Primero necesitas crear un perfil para tu adulto mayor.</p>
+                <a href="/elder/profile" class="btn btn-primary">Crear Perfil</a>
+            </div>
+            {% endif %}
         </div>
     </main>
 </div>
+
+<script>
+function medicationsPage(elderId) {
+    return {
+        elderId,
+        medications: [],
+        loading: true,
+        showModal: false,
+        saving: false,
+        form: { name: '', dosage: '', instructions: '' },
+        scheduleTimes: ['08:00'],
+        
+        async init() {
+            if (!this.elderId) return;
+            await this.loadMedications();
+        },
+        
+        async loadMedications() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/medications`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.medications = data.items || data;
+                }
+            } catch (e) {
+                console.error('Failed to load medications:', e);
+            }
+            this.loading = false;
+        },
+        
+        async createMedication() {
+            this.saving = true;
+            try {
+                const payload = {
+                    ...this.form,
+                    schedule_times: this.scheduleTimes
+                };
+                const res = await fetch(`/api/elder/${this.elderId}/medications`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                if (res.ok) {
+                    this.showModal = false;
+                    this.form = { name: '', dosage: '', instructions: '' };
+                    this.scheduleTimes = ['08:00'];
+                    await this.loadMedications();
+                }
+            } catch (e) {
+                console.error('Failed to create medication:', e);
+            }
+            this.saving = false;
+        },
+        
+        async deleteMedication(id) {
+            if (!confirm('¿Estás seguro de que quieres eliminar este medicamento?')) return;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/medications/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    await this.loadMedications();
+                }
+            } catch (e) {
+                console.error('Failed to delete medication:', e);
+            }
+        }
+    }
+}
+</script>
 {% endblock %}

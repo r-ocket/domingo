@@ -5,85 +5,113 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container">
+        <div class="page-container" x-data="reminderLogsPage('{{ elder_id | default(value='') }}')">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Reminder Logs</h1>
-                    <p class="page-subtitle">View medication reminder history</p>
+                    <h1 class="page-title">Historial de Recordatorios</h1>
+                    <p class="page-subtitle">Ver todos los recordatorios de medicación enviados</p>
                 </div>
             </header>
 
-            <!-- Reminders Table -->
+            {% if elder_id %}
+            <!-- Reminder Logs Table -->
             <div class="data-table-wrapper">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Medication</th>
-                            <th>Method</th>
-                            <th>Status</th>
+                            <th>Fecha</th>
+                            <th>Medicamento</th>
+                            <th>Dosis</th>
+                            <th>Estado</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for reminder in reminders %}
-                        <tr>
-                            <td class="font-medium text-stone-100">
-                                {{ reminder.ts | date(format="%b %d, %Y") }}
-                                <span class="text-stone-500 text-xs block">{{ reminder.ts | date(format="%H:%M") }}</span>
-                            </td>
-                            <td>
-                                <span class="text-stone-100">{{ reminder.medication_name }}</span>
-                                <span class="text-stone-500 text-xs block">{{ reminder.dosage }}</span>
+                        <template x-if="loading">
+                            <tr><td colspan="4" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                        </template>
+                        <template x-if="!loading && reminders.length === 0">
+                            <tr><td colspan="4" class="text-center text-stone-500 py-8">
+                                No hay recordatorios registrados. Los recordatorios aparecerán aquí cuando se envíen.
+                            </td></tr>
+                        </template>
+                        <template x-for="reminder in reminders" :key="reminder.id">
+                            <tr>
+                                <td class="font-medium text-stone-100">
+                                    <span x-text="formatDate(reminder.scheduled_at)"></span>
+                                    <span class="text-stone-500 text-xs block" x-text="formatTime(reminder.scheduled_at)"></span>
                                 </td>
-                            <td>
-                                {% if reminder.delivery_method == "call" %}
-                                <span class="flex items-center gap-1.5 text-sm text-stone-300">
-                                    <span>📞</span> Voice Call
-                                </span>
-                                {% else %}
-                                <span class="flex items-center gap-1.5 text-sm text-stone-300">
-                                    <span>💬</span> SMS
-                                </span>
-                                {% endif %}
+                                <td x-text="reminder.medication_name || 'Desconocido'"></td>
+                                <td x-text="reminder.dosage || '—'"></td>
+                                <td>
+                                    <span x-show="reminder.confirmed" class="badge badge-green">Confirmado</span>
+                                    <span x-show="reminder.status === 'sent' && !reminder.confirmed" class="badge badge-yellow">Enviado</span>
+                                    <span x-show="reminder.status === 'pending'" class="badge badge-gray">Pendiente</span>
+                                    <span x-show="reminder.status === 'failed'" class="badge badge-red">Fallido</span>
+                                    <span x-show="!['sent', 'pending', 'failed'].includes(reminder.status) && !reminder.confirmed" 
+                                          class="badge badge-gray" x-text="reminder.status"></span>
                                 </td>
-                            <td>
-                                {% if reminder.status == "confirmed" %}
-                                <span class="badge badge-green">Confirmed</span>
-                                {% elif reminder.status == "delivered" %}
-                                <span class="badge badge-blue">Delivered</span>
-                                {% elif reminder.status == "no_answer" %}
-                                <span class="badge badge-yellow">No Answer</span>
-                                {% elif reminder.status == "failed" %}
-                                <span class="badge badge-red">Failed</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ reminder.status }}</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
+                            </tr>
+                        </template>
                     </tbody>
                 </table>
-                {% if reminders is undefined or reminders | length == 0 %}
-                <div class="data-table-empty">
-                    <p>No reminder logs yet.</p>
-                    <p class="text-sm text-stone-600 mt-1">Medication reminders will appear here once sent.</p>
-                </div>
-                {% endif %}
             </div>
-
-            {% if pagination %}
-            <div class="pagination">
-                {% if pagination.has_prev %}
-                <a href="?page={{ pagination.page - 1 }}" class="btn btn-ghost btn-sm">← Previous</a>
-                {% endif %}
-                <span class="pagination-info">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
-                {% if pagination.has_next %}
-                <a href="?page={{ pagination.page + 1 }}" class="btn btn-ghost btn-sm">Next →</a>
-                {% endif %}
+            
+            <!-- Pagination -->
+            <div x-show="totalPages > 1" class="pagination">
+                <button @click="page--; loadReminders()" :disabled="page <= 1" class="btn btn-ghost btn-sm">← Anterior</button>
+                <span class="pagination-info">Página <span x-text="page"></span> de <span x-text="totalPages"></span></span>
+                <button @click="page++; loadReminders()" :disabled="page >= totalPages" class="btn btn-ghost btn-sm">Siguiente →</button>
+            </div>
+            {% else %}
+            <div class="card text-center py-12">
+                <p class="text-stone-400 mb-4">Primero necesitas crear un perfil para tu adulto mayor.</p>
+                <a href="/elder/profile" class="btn btn-primary">Crear Perfil</a>
             </div>
             {% endif %}
         </div>
     </main>
 </div>
+
+<script>
+function reminderLogsPage(elderId) {
+    return {
+        elderId,
+        reminders: [],
+        loading: true,
+        page: 1,
+        totalPages: 1,
+        
+        async init() {
+            if (!this.elderId) return;
+            await this.loadReminders();
+        },
+        
+        async loadReminders() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/reminder-logs?page=${this.page}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.reminders = data.items || data;
+                    if (data.total_pages) this.totalPages = data.total_pages;
+                }
+            } catch (e) {
+                console.error('Failed to load reminders:', e);
+            }
+            this.loading = false;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('es-MX', { month: 'short', day: 'numeric', year: 'numeric' });
+        },
+        
+        formatTime(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+        }
+    }
+}
+</script>
 {% endblock %}

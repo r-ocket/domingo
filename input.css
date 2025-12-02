@@ -276,8 +276,12 @@
     @apply bg-purple-500/20 text-purple-400;
   }
 
-  .badge-gray, .badge-default {
+  .badge-gray, .badge-default, .badge-stone {
     @apply bg-surface-700 text-stone-300;
+  }
+  
+  .badge-primary {
+    @apply bg-primary-500/20 text-primary-400;
   }
 
   /* ==========================================

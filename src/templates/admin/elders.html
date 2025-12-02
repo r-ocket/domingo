@@ -146,9 +146,9 @@ htmx.on('htmx:beforeSwap', function(evt) {
                 evt.detail.serverResponse = `<div class="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">${data.error}</div>`;
             } else if (data.id) {
                 evt.detail.serverResponse = `<div class="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-sm">✓ Adulto mayor creado: ${data.name}</div>`;
-            }
+        }
         } catch (e) {}
-    }
+}
 });
 </script>
 {% endblock %}

@@ -17,23 +17,23 @@
 
     <!-- Navigation -->
     <nav class="sidebar-nav">
-        <a href="/dashboard" class="nav-item">
+        <a href="/dashboard" class="nav-item {% if current_path == '/dashboard' %}active{% endif %}">
             <span class="nav-item-icon">📊</span>
             <span x-show="sidebarOpen" x-transition.opacity>Panel Principal</span>
         </a>
-        <a href="/elder/profile" class="nav-item">
+        <a href="/elder/profile" class="nav-item {% if current_path == '/elder/profile' %}active{% endif %}">
             <span class="nav-item-icon">👤</span>
             <span x-show="sidebarOpen" x-transition.opacity>Perfil del Adulto Mayor</span>
         </a>
-        <a href="/elder/contacts" class="nav-item">
+        <a href="/elder/contacts" class="nav-item {% if current_path == '/elder/contacts' %}active{% endif %}">
             <span class="nav-item-icon">👥</span>
             <span x-show="sidebarOpen" x-transition.opacity>Contactos</span>
         </a>
-        <a href="/elder/locations" class="nav-item">
+        <a href="/elder/locations" class="nav-item {% if current_path == '/elder/locations' %}active{% endif %}">
             <span class="nav-item-icon">📍</span>
             <span x-show="sidebarOpen" x-transition.opacity>Ubicaciones</span>
         </a>
-        <a href="/elder/medications" class="nav-item">
+        <a href="/elder/medications" class="nav-item {% if current_path == '/elder/medications' %}active{% endif %}">
             <span class="nav-item-icon">💊</span>
             <span x-show="sidebarOpen" x-transition.opacity>Medicamentos</span>
         </a>
@@ -42,21 +42,21 @@
             <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Historial</p>
         </div>
         
-        <a href="/elder/logs/calls" class="nav-item">
+        <a href="/elder/logs/calls" class="nav-item {% if current_path == '/elder/logs/calls' %}active{% endif %}">
             <span class="nav-item-icon">📞</span>
             <span x-show="sidebarOpen" x-transition.opacity>Llamadas</span>
         </a>
-        <a href="/elder/logs/rides" class="nav-item">
+        <a href="/elder/logs/rides" class="nav-item {% if current_path == '/elder/logs/rides' %}active{% endif %}">
             <span class="nav-item-icon">🚗</span>
             <span x-show="sidebarOpen" x-transition.opacity>Viajes</span>
         </a>
-        <a href="/elder/logs/reminders" class="nav-item">
+        <a href="/elder/logs/reminders" class="nav-item {% if current_path == '/elder/logs/reminders' %}active{% endif %}">
             <span class="nav-item-icon">⏰</span>
             <span x-show="sidebarOpen" x-transition.opacity>Recordatorios</span>
         </a>
         
         <div class="sidebar-section">
-            <a href="/billing" class="nav-item">
+            <a href="/billing" class="nav-item {% if current_path == '/billing' %}active{% endif %}">
                 <span class="nav-item-icon">💳</span>
                 <span x-show="sidebarOpen" x-transition.opacity>Facturación</span>
             </a>
@@ -65,23 +65,23 @@
         {% if is_admin %}
         <div class="sidebar-section">
             <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Administrador</p>
-            <a href="/admin" class="nav-item">
+            <a href="/admin" class="nav-item {% if current_path == '/admin' %}active{% endif %}">
                 <span class="nav-item-icon">📈</span>
                 <span x-show="sidebarOpen" x-transition.opacity>Panel Admin</span>
             </a>
-            <a href="/admin/caregivers" class="nav-item">
+            <a href="/admin/caregivers" class="nav-item {% if current_path == '/admin/caregivers' %}active{% endif %}">
                 <span class="nav-item-icon">👤</span>
                 <span x-show="sidebarOpen" x-transition.opacity>Cuidadores</span>
             </a>
-            <a href="/admin/elders" class="nav-item">
+            <a href="/admin/elders" class="nav-item {% if current_path == '/admin/elders' %}active{% endif %}">
                 <span class="nav-item-icon">👴</span>
                 <span x-show="sidebarOpen" x-transition.opacity>Adultos Mayores</span>
             </a>
-            <a href="/admin/logs" class="nav-item">
+            <a href="/admin/logs" class="nav-item {% if current_path == '/admin/logs' %}active{% endif %}">
                 <span class="nav-item-icon">📋</span>
                 <span x-show="sidebarOpen" x-transition.opacity>Registros del Sistema</span>
             </a>
-            <a href="/admin/debug" class="nav-item">
+            <a href="/admin/debug" class="nav-item {% if current_path == '/admin/debug' %}active{% endif %}">
                 <span class="nav-item-icon">🔧</span>
                 <span x-show="sidebarOpen" x-transition.opacity>Herramientas Debug</span>
             </a>

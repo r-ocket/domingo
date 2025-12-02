@@ -17,7 +17,8 @@
             <div class="max-w-2xl">
                 <div class="card">
                     {% if elder %}
-                    <form hx-put="/elder/{{ elder.id }}" 
+                    <form hx-put="/api/elder/{{ elder.id }}" 
+                          hx-ext="json-enc"
                           hx-target="#form-feedback" 
                           hx-swap="innerHTML"
                           class="space-y-5">
@@ -58,7 +59,8 @@
                         <button type="submit" class="btn btn-primary">Guardar Cambios</button>
                     </form>
                     {% else %}
-                    <form hx-post="/elder" 
+                    <form hx-post="/api/elder" 
+                          hx-ext="json-enc"
                           hx-swap="none"
                           @htmx:after-request="if(event.detail.successful) window.location.href = '/dashboard'"
                           class="space-y-5">

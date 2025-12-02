@@ -119,14 +119,13 @@ async fn main() -> anyhow::Result<()> {
     tracing::info!("Medication reminder scheduler started");
     
     // Build router with middleware stack
-    // Order matters: outermost layer processes first on request, last on response
+    // Layer order: last added = outermost (runs first on request)
     let app = Router::new()
         .merge(handlers::api_routes())
         .merge(handlers::page_routes())
         .nest_service("/static", tower_http::services::ServeDir::new("static"))
-        // Request ID middleware - generates/propagates request IDs
-        .layer(axum_middleware::from_fn(middleware::request_id_middleware))
-        // Tracing layer with custom configuration
+        .layer(CorsLayer::permissive())
+        // Tracing layer - runs after request ID is set
         .layer(
             TraceLayer::new_for_http()
                 .on_request(DefaultOnRequest::new().level(Level::INFO))
@@ -152,7 +151,8 @@ async fn main() -> anyhow::Result<()> {
                     )
                 })
         )
-        .layer(CorsLayer::permissive())
+        // Request ID middleware - runs first, sets ID in extensions
+        .layer(axum_middleware::from_fn(middleware::request_id_middleware))
         .with_state(state);
     
     // Start server

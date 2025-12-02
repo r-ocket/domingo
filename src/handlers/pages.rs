@@ -86,6 +86,7 @@ pub async fn dashboard(
     
     let mut context = Context::new();
     context.insert("title", "Dashboard - Walle");
+    context.insert("current_path", "/dashboard");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     // Get elder summary if exists
@@ -120,6 +121,7 @@ pub async fn elder_profile(
     
     let mut context = Context::new();
     context.insert("title", "Elder Profile - Walle");
+    context.insert("current_path", "/elder/profile");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     if let Ok(Some(elder)) = ElderService::get_elder_for_caregiver(&state.db, session.caregiver_id).await {
@@ -146,7 +148,8 @@ pub async fn contacts_page(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Contacts - Walle");
+    context.insert("title", "Contactos - Walle");
+    context.insert("current_path", "/elder/contacts");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     if let Ok(Some(elder)) = ElderService::get_elder_for_caregiver(&state.db, session.caregiver_id).await {
@@ -173,7 +176,8 @@ pub async fn locations_page(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Locations - Walle");
+    context.insert("title", "Ubicaciones - Walle");
+    context.insert("current_path", "/elder/locations");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     if let Ok(Some(elder)) = ElderService::get_elder_for_caregiver(&state.db, session.caregiver_id).await {
@@ -200,7 +204,8 @@ pub async fn medications_page(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Medications - Walle");
+    context.insert("title", "Medicamentos - Walle");
+    context.insert("current_path", "/elder/medications");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     if let Ok(Some(elder)) = ElderService::get_elder_for_caregiver(&state.db, session.caregiver_id).await {
@@ -227,14 +232,15 @@ pub async fn call_logs_page(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Call Logs - Walle");
+    context.insert("title", "Llamadas - Walle");
+    context.insert("current_path", "/elder/logs/calls");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     if let Ok(Some(elder)) = ElderService::get_elder_for_caregiver(&state.db, session.caregiver_id).await {
         context.insert("elder_id", &elder.id.to_string());
     }
     
-    match state.templates.render("elder/call_logs.html", &context) {
+    match state.templates.render("elder/logs_calls.html", &context) {
         Ok(html) => Html(html).into_response(),
         Err(e) => {
             tracing::error!("Template error: {}", e);
@@ -254,14 +260,15 @@ pub async fn ride_logs_page(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Ride Logs - Walle");
+    context.insert("title", "Viajes - Walle");
+    context.insert("current_path", "/elder/logs/rides");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     if let Ok(Some(elder)) = ElderService::get_elder_for_caregiver(&state.db, session.caregiver_id).await {
         context.insert("elder_id", &elder.id.to_string());
     }
     
-    match state.templates.render("elder/ride_logs.html", &context) {
+    match state.templates.render("elder/logs_rides.html", &context) {
         Ok(html) => Html(html).into_response(),
         Err(e) => {
             tracing::error!("Template error: {}", e);
@@ -281,14 +288,15 @@ pub async fn reminder_logs_page(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Reminder Logs - Walle");
+    context.insert("title", "Recordatorios - Walle");
+    context.insert("current_path", "/elder/logs/reminders");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     if let Ok(Some(elder)) = ElderService::get_elder_for_caregiver(&state.db, session.caregiver_id).await {
         context.insert("elder_id", &elder.id.to_string());
     }
     
-    match state.templates.render("elder/reminder_logs.html", &context) {
+    match state.templates.render("elder/logs_reminders.html", &context) {
         Ok(html) => Html(html).into_response(),
         Err(e) => {
             tracing::error!("Template error: {}", e);
@@ -308,7 +316,8 @@ pub async fn billing_page(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Billing - Walle");
+    context.insert("title", "Facturación - Walle");
+    context.insert("current_path", "/billing");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
     
     match state.templates.render("billing.html", &context) {
@@ -331,7 +340,8 @@ pub async fn admin_dashboard(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Admin Dashboard - Walle");
+    context.insert("title", "Panel Admin - Walle");
+    context.insert("current_path", "/admin");
     context.insert("is_admin", &true);
     
     match state.templates.render("admin/dashboard.html", &context) {
@@ -354,7 +364,8 @@ pub async fn admin_caregivers(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Caregivers - Admin - Walle");
+    context.insert("title", "Cuidadores - Admin - Walle");
+    context.insert("current_path", "/admin/caregivers");
     context.insert("is_admin", &true);
     
     match state.templates.render("admin/caregivers.html", &context) {
@@ -377,7 +388,8 @@ pub async fn admin_elders(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Elders - Admin - Walle");
+    context.insert("title", "Adultos Mayores - Admin - Walle");
+    context.insert("current_path", "/admin/elders");
     context.insert("is_admin", &true);
     
     match state.templates.render("admin/elders.html", &context) {
@@ -400,7 +412,8 @@ pub async fn admin_logs(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Logs - Admin - Walle");
+    context.insert("title", "Registros - Admin - Walle");
+    context.insert("current_path", "/admin/logs");
     context.insert("is_admin", &true);
     
     match state.templates.render("admin/logs.html", &context) {
@@ -423,7 +436,8 @@ pub async fn admin_debug(
     };
     
     let mut context = Context::new();
-    context.insert("title", "Debug Tools - Admin - Walle");
+    context.insert("title", "Herramientas Debug - Admin - Walle");
+    context.insert("current_path", "/admin/debug");
     context.insert("is_admin", &true);
     
     match state.templates.render("admin/debug.html", &context) {
@@ -439,4 +453,3 @@ fn get_session(state: &AppState, jar: &CookieJar) -> Option<crate::domain::Sessi
     jar.get(SESSION_COOKIE)
         .and_then(|c| decode_session(c.value(), &state.config.session_secret))
 }
-

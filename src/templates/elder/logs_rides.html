@@ -5,81 +5,116 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container">
+        <div class="page-container" x-data="rideLogsPage('{{ elder_id | default(value='') }}')">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Ride Logs</h1>
-                    <p class="page-subtitle">View all ride requests</p>
+                    <h1 class="page-title">Historial de Viajes</h1>
+                    <p class="page-subtitle">Ver todos los viajes solicitados</p>
                 </div>
             </header>
 
-            <!-- Rides Table -->
+            {% if elder_id %}
+            <!-- Ride Logs Table -->
             <div class="data-table-wrapper">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Destination</th>
-                            <th>Status</th>
-                            <th>Fare</th>
+                            <th>Fecha</th>
+                            <th>Destino</th>
+                            <th>Estado</th>
+                            <th>Costo</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for ride in rides %}
-                        <tr>
-                            <td class="font-medium text-stone-100">
-                                {{ ride.requested_at | date(format="%b %d, %Y") }}
-                                <span class="text-stone-500 text-xs block">{{ ride.requested_at | date(format="%H:%M") }}</span>
-                            </td>
-                            <td>
-                                <span class="text-stone-100">{{ ride.location_name }}</span>
-                                <span class="text-stone-500 text-xs block">{{ ride.location_address | truncate(length=40) }}</span>
+                        <template x-if="loading">
+                            <tr><td colspan="4" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                        </template>
+                        <template x-if="!loading && rides.length === 0">
+                            <tr><td colspan="4" class="text-center text-stone-500 py-8">
+                                No hay viajes registrados. Los viajes aparecerán aquí cuando tu adulto mayor los solicite.
+                            </td></tr>
+                        </template>
+                        <template x-for="ride in rides" :key="ride.id">
+                            <tr>
+                                <td class="font-medium text-stone-100">
+                                    <span x-text="formatDate(ride.requested_at)"></span>
+                                    <span class="text-stone-500 text-xs block" x-text="formatTime(ride.requested_at)"></span>
                                 </td>
-                            <td>
-                                {% if ride.status == "completed" %}
-                                <span class="badge badge-green">Completed</span>
-                                {% elif ride.status == "in_progress" %}
-                                <span class="badge badge-blue">In Progress</span>
-                                {% elif ride.status == "cancelled" %}
-                                <span class="badge badge-red">Cancelled</span>
-                                {% elif ride.status == "requested" %}
-                                <span class="badge badge-yellow">Requested</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ ride.status }}</span>
-                                {% endif %}
+                                <td x-text="ride.destination_name || ride.destination_address || 'Desconocido'"></td>
+                                <td>
+                                    <span x-show="ride.status === 'completed'" class="badge badge-green">Completado</span>
+                                    <span x-show="ride.status === 'in_progress'" class="badge badge-blue">En Progreso</span>
+                                    <span x-show="ride.status === 'pending'" class="badge badge-yellow">Pendiente</span>
+                                    <span x-show="ride.status === 'cancelled'" class="badge badge-red">Cancelado</span>
+                                    <span x-show="!['completed', 'in_progress', 'pending', 'cancelled'].includes(ride.status)" 
+                                          class="badge badge-gray" x-text="ride.status"></span>
                                 </td>
-                            <td class="font-mono text-sm">
-                                {% if ride.fare %}
-                                ${{ ride.fare }}
-                                {% else %}
-                                <span class="text-stone-500">—</span>
-                                {% endif %}
-                            </td>
-                        </tr>
-                        {% endfor %}
+                                <td>
+                                    <span x-show="ride.estimated_fare" x-text="'$' + ride.estimated_fare"></span>
+                                    <span x-show="!ride.estimated_fare" class="text-stone-500">—</span>
+                                </td>
+                            </tr>
+                        </template>
                     </tbody>
                 </table>
-                {% if rides is undefined or rides | length == 0 %}
-                <div class="data-table-empty">
-                    <p>No ride logs yet.</p>
-                    <p class="text-sm text-stone-600 mt-1">Rides requested through the voice assistant will appear here.</p>
-                </div>
-                {% endif %}
             </div>
-
-            {% if pagination %}
-            <div class="pagination">
-                {% if pagination.has_prev %}
-                <a href="?page={{ pagination.page - 1 }}" class="btn btn-ghost btn-sm">← Previous</a>
-                {% endif %}
-                <span class="pagination-info">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
-                {% if pagination.has_next %}
-                <a href="?page={{ pagination.page + 1 }}" class="btn btn-ghost btn-sm">Next →</a>
-                {% endif %}
+            
+            <!-- Pagination -->
+            <div x-show="totalPages > 1" class="pagination">
+                <button @click="page--; loadRides()" :disabled="page <= 1" class="btn btn-ghost btn-sm">← Anterior</button>
+                <span class="pagination-info">Página <span x-text="page"></span> de <span x-text="totalPages"></span></span>
+                <button @click="page++; loadRides()" :disabled="page >= totalPages" class="btn btn-ghost btn-sm">Siguiente →</button>
+            </div>
+            {% else %}
+            <div class="card text-center py-12">
+                <p class="text-stone-400 mb-4">Primero necesitas crear un perfil para tu adulto mayor.</p>
+                <a href="/elder/profile" class="btn btn-primary">Crear Perfil</a>
             </div>
             {% endif %}
         </div>
     </main>
 </div>
+
+<script>
+function rideLogsPage(elderId) {
+    return {
+        elderId,
+        rides: [],
+        loading: true,
+        page: 1,
+        totalPages: 1,
+        
+        async init() {
+            if (!this.elderId) return;
+            await this.loadRides();
+        },
+        
+        async loadRides() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/ride-logs?page=${this.page}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.rides = data.items || data;
+                    if (data.total_pages) this.totalPages = data.total_pages;
+                }
+            } catch (e) {
+                console.error('Failed to load rides:', e);
+            }
+            this.loading = false;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('es-MX', { month: 'short', day: 'numeric', year: 'numeric' });
+        },
+        
+        formatTime(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+        }
+    }
+}
+</script>
 {% endblock %}

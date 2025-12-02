@@ -5,40 +5,54 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container" x-data="{ showModal: false }">
+        <div class="page-container" x-data="locationsPage('{{ elder_id | default(value='') }}')">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Saved Locations</h1>
-                    <p class="page-subtitle">Places your elder can request rides to</p>
+                    <h1 class="page-title">Ubicaciones Guardadas</h1>
+                    <p class="page-subtitle">Lugares a donde tu adulto mayor puede solicitar viajes</p>
                 </div>
                 <div class="page-actions">
-                    <button @click="showModal = true" class="btn btn-primary">+ Add Location</button>
-            </div>
+                    {% if elder_id %}
+                    <button @click="showModal = true" class="btn btn-primary">+ Agregar Ubicación</button>
+                    {% endif %}
+                </div>
             </header>
 
+            {% if elder_id %}
             <!-- Locations Table -->
             <div class="data-table-wrapper">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Name</th>
-                            <th>Address</th>
-                            <th>Type</th>
-                            <th class="text-right">Actions</th>
+                            <th>Nombre</th>
+                            <th>Dirección</th>
+                            <th>Tipo</th>
+                            <th class="text-right">Acciones</th>
                         </tr>
                     </thead>
-                    <tbody id="locations-table">
-                        {% for location in locations %}
-                        {% include "partials/location-row.html" %}
-                        {% endfor %}
+                    <tbody>
+                        <template x-if="loading">
+                            <tr><td colspan="4" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                        </template>
+                        <template x-if="!loading && locations.length === 0">
+                            <tr><td colspan="4" class="text-center text-stone-500 py-8">No hay ubicaciones. Agrega lugares que tu adulto mayor visita.</td></tr>
+                        </template>
+                        <template x-for="loc in locations" :key="loc.id">
+                            <tr>
+                                <td x-text="loc.name"></td>
+                                <td x-text="loc.address"></td>
+                                <td>
+                                    <span x-show="loc.is_home" class="badge badge-primary">Casa</span>
+                                    <span x-show="!loc.is_home" class="badge badge-stone">Destino</span>
+                                </td>
+                                <td class="text-right">
+                                    <button @click="deleteLocation(loc.id)" class="btn btn-ghost btn-sm text-red-400">Eliminar</button>
+                                </td>
+                            </tr>
+                        </template>
                     </tbody>
                 </table>
-                {% if locations is undefined or locations | length == 0 %}
-                <div id="empty-state" class="data-table-empty">
-                    No locations yet. Add places your elder visits.
-                </div>
-                {% endif %}
             </div>
 
             <!-- Add Modal -->
@@ -46,43 +60,108 @@
                 <div class="modal-backdrop" @click="showModal = false"></div>
                     
                 <div class="modal">
-                    <h2 class="modal-title">Add Location</h2>
+                    <h2 class="modal-title">Agregar Ubicación</h2>
                     
-                    <form hx-post="/elder/locations" 
-                          hx-target="#locations-table" 
-                          hx-swap="beforeend"
-                          @htmx:after-request="if(event.detail.successful) { showModal = false; document.getElementById('empty-state')?.remove(); }"
-                          class="modal-body">
+                    <form @submit.prevent="createLocation" class="modal-body">
                         <div class="form-group">
-                            <label class="form-label">Name</label>
-                            <input type="text" name="name" required placeholder="e.g., Doctor's Office" class="form-input">
-                            </div>
+                            <label class="form-label">Nombre</label>
+                            <input type="text" x-model="form.name" required placeholder="ej. Consultorio del Doctor" class="form-input">
+                        </div>
                         <div class="form-group">
-                            <label class="form-label">Address</label>
-                            <textarea name="address" required rows="2" placeholder="Full street address" class="form-textarea"></textarea>
-                            </div>
+                            <label class="form-label">Dirección</label>
+                            <textarea x-model="form.address" required rows="2" placeholder="Dirección completa" class="form-textarea"></textarea>
+                        </div>
                         <div class="form-group">
-                            <label class="form-label">Extra Instructions (optional)</label>
-                            <textarea name="extra_instructions" rows="2" placeholder="e.g., Use back entrance" class="form-textarea"></textarea>
-                            </div>
+                            <label class="form-label">Notas (opcional)</label>
+                            <textarea x-model="form.notes" rows="2" placeholder="ej. Usar entrada trasera" class="form-textarea"></textarea>
+                        </div>
                         <div class="form-group">
-                                <label class="flex items-center gap-3">
-                                <input type="checkbox" name="is_home" value="true" class="form-checkbox">
-                                <span class="text-sm text-stone-300">This is the home address (pickup location)</span>
-                                </label>
-                            </div>
+                            <label class="flex items-center gap-3">
+                                <input type="checkbox" x-model="form.is_home" class="form-checkbox">
+                                <span class="text-sm text-stone-300">Esta es la dirección de casa (punto de recogida)</span>
+                            </label>
+                        </div>
                             
                         <div class="modal-footer">
-                                <button type="button" @click="showModal = false" class="btn btn-ghost">Cancel</button>
-                            <button type="submit" class="btn btn-primary">Save</button>
-                            </div>
-                        </form>
+                            <button type="button" @click="showModal = false" class="btn btn-ghost">Cancelar</button>
+                            <button type="submit" class="btn btn-primary" :disabled="saving">
+                                <span x-show="!saving">Guardar</span>
+                                <span x-show="saving">Guardando...</span>
+                            </button>
+                        </div>
+                    </form>
                 </div>
             </div>
-
-            <!-- Edit Modal container -->
-            <div id="edit-modal"></div>
+            {% else %}
+            <div class="card text-center py-12">
+                <p class="text-stone-400 mb-4">Primero necesitas crear un perfil para tu adulto mayor.</p>
+                <a href="/elder/profile" class="btn btn-primary">Crear Perfil</a>
+            </div>
+            {% endif %}
         </div>
     </main>
 </div>
+
+<script>
+function locationsPage(elderId) {
+    return {
+        elderId,
+        locations: [],
+        loading: true,
+        showModal: false,
+        saving: false,
+        form: { name: '', address: '', notes: '', is_home: false },
+        
+        async init() {
+            if (!this.elderId) return;
+            await this.loadLocations();
+        },
+        
+        async loadLocations() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/locations`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.locations = data.items || data;
+                }
+            } catch (e) {
+                console.error('Failed to load locations:', e);
+            }
+            this.loading = false;
+        },
+        
+        async createLocation() {
+            this.saving = true;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/locations`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form)
+                });
+                if (res.ok) {
+                    this.showModal = false;
+                    this.form = { name: '', address: '', notes: '', is_home: false };
+                    await this.loadLocations();
+                }
+            } catch (e) {
+                console.error('Failed to create location:', e);
+            }
+            this.saving = false;
+        },
+        
+        async deleteLocation(id) {
+            if (!confirm('¿Estás seguro de que quieres eliminar esta ubicación?')) return;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/locations/${id}`, { method: 'DELETE' });
+                if (res.ok) {
+                    await this.loadLocations();
+                }
+            } catch (e) {
+                console.error('Failed to delete location:', e);
+            }
+        }
+    }
+}
+</script>
 {% endblock %}

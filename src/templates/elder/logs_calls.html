@@ -5,96 +5,178 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container">
+        <div class="page-container" x-data="callLogsPage('{{ elder_id | default(value='') }}')">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Call Logs</h1>
-                    <p class="page-subtitle">View all voice assistant interactions</p>
+                    <h1 class="page-title">Historial de Llamadas</h1>
+                    <p class="page-subtitle">Ver todas las interacciones con el asistente de voz</p>
                 </div>
             </header>
 
+            {% if elder_id %}
             <!-- Call Logs Table -->
             <div class="data-table-wrapper">
                 <table class="data-table">
                     <thead>
                         <tr>
-                            <th>Date</th>
-                            <th>Duration</th>
-                            <th>Status</th>
-                            <th>Tools Used</th>
-                            <th class="text-right">Actions</th>
+                            <th>Fecha</th>
+                            <th>Duración</th>
+                            <th>Estado</th>
+                            <th>Herramientas</th>
+                            <th class="text-right">Acciones</th>
                         </tr>
                     </thead>
                     <tbody>
-                        {% for call in calls %}
-                        <tr>
-                            <td class="font-medium text-stone-100">
-                                {{ call.started_at | date(format="%b %d, %Y") }}
-                                <span class="text-stone-500 text-xs block">{{ call.started_at | date(format="%H:%M") }}</span>
-                            </td>
-                            <td class="font-mono text-sm">
-                                {% if call.ended_at %}
-                                {{ call.duration_minutes }} min
-                                {% else %}
-                                <span class="text-stone-500">—</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if call.status == "completed" %}
-                                <span class="badge badge-green">Completed</span>
-                                {% elif call.status == "in_progress" %}
-                                <span class="badge badge-blue">In Progress</span>
-                                {% elif call.status == "transferred" %}
-                                <span class="badge badge-yellow">Transferred</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ call.status }}</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if call.tools_used %}
-                                <div class="flex flex-wrap gap-1">
-                                    {% for tool in call.tools_used %}
-                                    <span class="tag">{{ tool }}</span>
-                                    {% endfor %}
-                                </div>
-                                {% else %}
-                                <span class="text-stone-500 text-sm">None</span>
-                                {% endif %}
-                            </td>
-                            <td class="data-table-actions">
-                                <button hx-get="/elder/logs/calls/{{ call.id }}" 
-                                        hx-target="#call-detail-modal" 
-                                        hx-swap="innerHTML"
-                                        class="btn btn-ghost btn-sm">View</button>
-                            </td>
-                        </tr>
-                        {% endfor %}
+                        <template x-if="loading">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                        </template>
+                        <template x-if="!loading && calls.length === 0">
+                            <tr><td colspan="5" class="text-center text-stone-500 py-8">
+                                No hay llamadas registradas. Las llamadas aparecerán aquí cuando tu adulto mayor use el asistente de voz.
+                            </td></tr>
+                        </template>
+                        <template x-for="call in calls" :key="call.id">
+                            <tr>
+                                <td class="font-medium text-stone-100">
+                                    <span x-text="formatDate(call.started_at)"></span>
+                                    <span class="text-stone-500 text-xs block" x-text="formatTime(call.started_at)"></span>
+                                </td>
+                                <td class="font-mono text-sm">
+                                    <span x-show="call.ended_at" x-text="formatDuration(call.started_at, call.ended_at)"></span>
+                                    <span x-show="!call.ended_at" class="text-stone-500">—</span>
+                                </td>
+                                <td>
+                                    <span x-show="call.status === 'completed'" class="badge badge-green">Completada</span>
+                                    <span x-show="call.status === 'in_progress'" class="badge badge-blue">En Progreso</span>
+                                    <span x-show="call.status === 'transferred'" class="badge badge-yellow">Transferida</span>
+                                    <span x-show="!['completed', 'in_progress', 'transferred'].includes(call.status)" 
+                                          class="badge badge-gray" x-text="call.status"></span>
+                                </td>
+                                <td>
+                                    <template x-if="call.tools_used && call.tools_used.length > 0">
+                                        <div class="flex flex-wrap gap-1">
+                                            <template x-for="tool in call.tools_used" :key="tool">
+                                                <span class="tag" x-text="tool"></span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                    <span x-show="!call.tools_used || call.tools_used.length === 0" class="text-stone-500 text-sm">Ninguna</span>
+                                </td>
+                                <td class="data-table-actions">
+                                    <button @click="viewCall(call)" class="btn btn-ghost btn-sm">Ver</button>
+                                </td>
+                            </tr>
+                        </template>
                     </tbody>
                 </table>
-                {% if calls is undefined or calls | length == 0 %}
-                <div class="data-table-empty">
-                    <p>No call logs yet.</p>
-                    <p class="text-sm text-stone-600 mt-1">Calls will appear here when your elder uses the voice assistant.</p>
-                </div>
-                {% endif %}
+            </div>
+            
+            <!-- Pagination -->
+            <div x-show="totalPages > 1" class="pagination">
+                <button @click="page--; loadCalls()" :disabled="page <= 1" class="btn btn-ghost btn-sm">← Anterior</button>
+                <span class="pagination-info">Página <span x-text="page"></span> de <span x-text="totalPages"></span></span>
+                <button @click="page++; loadCalls()" :disabled="page >= totalPages" class="btn btn-ghost btn-sm">Siguiente →</button>
             </div>
 
-            {% if pagination %}
-            <div class="pagination">
-                {% if pagination.has_prev %}
-                <a href="?page={{ pagination.page - 1 }}" class="btn btn-ghost btn-sm">← Previous</a>
-                {% endif %}
-                <span class="pagination-info">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
-                {% if pagination.has_next %}
-                <a href="?page={{ pagination.page + 1 }}" class="btn btn-ghost btn-sm">Next →</a>
-                {% endif %}
+            <!-- Detail Modal -->
+            <div x-show="selectedCall" x-cloak class="modal-container" @keydown.escape.window="selectedCall = null">
+                <div class="modal-backdrop" @click="selectedCall = null"></div>
+                <div class="modal max-w-2xl">
+                    <h2 class="modal-title">Detalle de Llamada</h2>
+                    <div class="modal-body space-y-4">
+                        <template x-if="selectedCall">
+                            <div class="space-y-3">
+                                <div class="grid grid-cols-2 gap-4">
+                                    <div>
+                                        <p class="text-xs text-stone-500 uppercase">Inicio</p>
+                                        <p class="text-stone-100" x-text="formatDateTime(selectedCall.started_at)"></p>
+                                    </div>
+                                    <div>
+                                        <p class="text-xs text-stone-500 uppercase">Fin</p>
+                                        <p class="text-stone-100" x-text="selectedCall.ended_at ? formatDateTime(selectedCall.ended_at) : 'En progreso'"></p>
+                                    </div>
+                                </div>
+                                <div x-show="selectedCall.transcript">
+                                    <p class="text-xs text-stone-500 uppercase mb-2">Transcripción</p>
+                                    <div class="bg-surface-900 rounded p-3 text-sm text-stone-300 max-h-64 overflow-y-auto">
+                                        <p x-text="selectedCall.transcript" class="whitespace-pre-wrap"></p>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                    <div class="modal-footer">
+                        <button @click="selectedCall = null" class="btn btn-ghost">Cerrar</button>
+                    </div>
+                </div>
+            </div>
+            {% else %}
+            <div class="card text-center py-12">
+                <p class="text-stone-400 mb-4">Primero necesitas crear un perfil para tu adulto mayor.</p>
+                <a href="/elder/profile" class="btn btn-primary">Crear Perfil</a>
             </div>
             {% endif %}
-
-            <!-- Detail Modal container -->
-            <div id="call-detail-modal"></div>
         </div>
     </main>
 </div>
+
+<script>
+function callLogsPage(elderId) {
+    return {
+        elderId,
+        calls: [],
+        loading: true,
+        page: 1,
+        totalPages: 1,
+        selectedCall: null,
+        
+        async init() {
+            if (!this.elderId) return;
+            await this.loadCalls();
+        },
+        
+        async loadCalls() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/call-logs?page=${this.page}`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.calls = data.items || data;
+                    if (data.total_pages) this.totalPages = data.total_pages;
+                }
+            } catch (e) {
+                console.error('Failed to load calls:', e);
+            }
+            this.loading = false;
+        },
+        
+        viewCall(call) {
+            this.selectedCall = call;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleDateString('es-MX', { month: 'short', day: 'numeric', year: 'numeric' });
+        },
+        
+        formatTime(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit' });
+        },
+        
+        formatDateTime(dateStr) {
+            if (!dateStr) return '';
+            return new Date(dateStr).toLocaleString('es-MX');
+        },
+        
+        formatDuration(start, end) {
+            if (!start || !end) return '';
+            const ms = new Date(end) - new Date(start);
+            const mins = Math.round(ms / 60000);
+            return `${mins} min`;
+        }
+    }
+}
+</script>
 {% endblock %}
