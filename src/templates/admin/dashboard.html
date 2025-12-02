@@ -1,0 +1,126 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-950">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="p-8">
+            <div class="mb-8">
+                <h1 class="text-2xl font-bold text-white">Admin Dashboard</h1>
+                <p class="text-slate-400 mt-1">System overview and statistics</p>
+            </div>
+
+            <!-- Stats Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-6 mb-8">
+                <div class="bg-slate-900 rounded-2xl p-6 border border-slate-800">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-3xl font-bold text-white">{{ total_caregivers }}</p>
+                            <p class="text-sm text-slate-400 mt-1">Caregivers</p>
+                        </div>
+                        <div class="w-12 h-12 bg-blue-500/20 rounded-xl flex items-center justify-center text-2xl">
+                            👤
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 rounded-2xl p-6 border border-slate-800">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-3xl font-bold text-white">{{ total_elders }}</p>
+                            <p class="text-sm text-slate-400 mt-1">Elders</p>
+                        </div>
+                        <div class="w-12 h-12 bg-emerald-500/20 rounded-xl flex items-center justify-center text-2xl">
+                            👴
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 rounded-2xl p-6 border border-slate-800">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-3xl font-bold text-white">{{ total_calls_today }}</p>
+                            <p class="text-sm text-slate-400 mt-1">Calls Today</p>
+                        </div>
+                        <div class="w-12 h-12 bg-purple-500/20 rounded-xl flex items-center justify-center text-2xl">
+                            📞
+                        </div>
+                    </div>
+                </div>
+
+                <div class="bg-slate-900 rounded-2xl p-6 border border-slate-800">
+                    <div class="flex items-center justify-between">
+                        <div>
+                            <p class="text-3xl font-bold text-white">{{ active_subscriptions }}</p>
+                            <p class="text-sm text-slate-400 mt-1">Active Subscriptions</p>
+                        </div>
+                        <div class="w-12 h-12 bg-amber-500/20 rounded-xl flex items-center justify-center text-2xl">
+                            💳
+                        </div>
+                    </div>
+                </div>
+            </div>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Recent Calls -->
+                <div class="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+                    <div class="flex justify-between items-center mb-4">
+                        <h2 class="text-lg font-semibold text-white">Recent Calls</h2>
+                        <a href="/admin/logs" class="text-sm text-primary-400 hover:text-primary-300">View All →</a>
+                    </div>
+                    <div class="space-y-3">
+                        {% for call in recent_calls %}
+                        <div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                            <div>
+                                <p class="text-sm font-medium text-white">{{ call.elder_name }}</p>
+                                <p class="text-xs text-slate-400">{{ call.started_at }}</p>
+                            </div>
+                            <span class="badge badge-{{ call.status_color }}">{{ call.status }}</span>
+                        </div>
+                        {% endfor %}
+                        {% if recent_calls | length == 0 %}
+                        <p class="text-center text-slate-500 py-4">No recent calls</p>
+                        {% endif %}
+                    </div>
+                </div>
+
+                <!-- System Status -->
+                <div class="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+                    <h2 class="text-lg font-semibold text-white mb-4">System Status</h2>
+                    <div class="space-y-4">
+                        <div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="w-2 h-2 bg-emerald-400 rounded-full"></span>
+                                <span class="text-sm text-slate-300">Database</span>
+                            </div>
+                            <span class="text-sm text-emerald-400">Healthy</span>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="w-2 h-2 bg-emerald-400 rounded-full"></span>
+                                <span class="text-sm text-slate-300">Twilio Integration</span>
+                            </div>
+                            <span class="text-sm text-emerald-400">Connected</span>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="w-2 h-2 bg-emerald-400 rounded-full"></span>
+                                <span class="text-sm text-slate-300">OpenAI Realtime</span>
+                            </div>
+                            <span class="text-sm text-emerald-400">Ready</span>
+                        </div>
+                        <div class="flex items-center justify-between p-3 bg-slate-800/50 rounded-lg">
+                            <div class="flex items-center gap-3">
+                                <span class="w-2 h-2 bg-emerald-400 rounded-full"></span>
+                                <span class="text-sm text-slate-300">Stripe</span>
+                            </div>
+                            <span class="text-sm text-emerald-400">Active</span>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+{% endblock %}

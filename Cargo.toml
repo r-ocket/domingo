@@ -1,0 +1,68 @@
+[package]
+name = "walle"
+version = "0.1.0"
+edition = "2021"
+description = "Voice AI Assistant for Elderly"
+authors = ["Walle Team"]
+
+[dependencies]
+# Web framework
+axum = { version = "0.7", features = ["ws", "macros"] }
+axum-extra = { version = "0.9", features = ["cookie", "typed-header"] }
+tower = "0.4"
+tower-http = { version = "0.5", features = ["fs", "cors", "trace"] }
+
+# Async runtime
+tokio = { version = "1", features = ["full"] }
+tokio-stream = "0.1"
+
+# Database
+tokio-postgres = { version = "0.7", features = ["with-uuid-1", "with-chrono-0_4", "with-serde_json-1"] }
+deadpool-postgres = { version = "0.12", features = ["serde"] }
+postgres-types = { version = "0.2", features = ["derive"] }
+
+# Serialization
+serde = { version = "1", features = ["derive"] }
+serde_json = "1"
+
+# Templates
+tera = "1"
+
+# HTTP client
+reqwest = { version = "0.12", features = ["json"] }
+
+# WebSockets
+tokio-tungstenite = { version = "0.21", features = ["native-tls"] }
+futures-util = "0.3"
+
+# Authentication
+argon2 = "0.5"
+rand = "0.8"
+
+# Types
+uuid = { version = "1", features = ["v4", "serde"] }
+chrono = { version = "0.4", features = ["serde"] }
+
+# Configuration
+dotenvy = "0.15"
+
+# Logging
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+
+# Error handling
+thiserror = "1"
+anyhow = "1"
+
+# Utilities
+base64 = "0.22"
+hmac = "0.12"
+sha2 = "0.10"
+url = "2"
+hex = "0.4"
+urlencoding = "2"
+http = "1"
+
+[dev-dependencies]
+tokio-test = "0.4"
+

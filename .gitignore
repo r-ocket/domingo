@@ -1,0 +1,57 @@
+# Rust / Cargo
+/target/
+**/*.rs.bk
+Cargo.lock
+
+# Environment
+.env
+.env.*
+!.env.example
+
+# IDE
+.idea/
+.vscode/
+*.swp
+*.swo
+*~
+.DS_Store
+
+# Node.js (Tailwind CSS)
+node_modules/
+package-lock.json
+yarn.lock
+pnpm-lock.yaml
+
+# Compiled CSS (regenerated from input.css)
+/static/css/output.css
+
+# Logs
+*.log
+logs/
+
+# Database
+*.db
+*.sqlite
+*.sqlite3
+
+# Temporary files
+tmp/
+temp/
+*.tmp
+*.bak
+
+# Coverage
+*.profraw
+*.profdata
+coverage/
+tarpaulin-report.html
+
+# Documentation build
+/docs/target/
+
+# Secrets (never commit these)
+*.pem
+*.key
+*.crt
+secrets/
+

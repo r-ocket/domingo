@@ -1,0 +1,190 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-950">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="p-8">
+            <div class="mb-8">
+                <h1 class="text-2xl font-bold text-white">Elder Profile</h1>
+                <p class="text-slate-400 mt-1">Manage your elder's information</p>
+            </div>
+
+            <div class="max-w-2xl">
+                <div class="bg-slate-900 rounded-2xl p-8 border border-slate-800" x-data="elderProfile()">
+                    {% if elder %}
+                    <form @submit.prevent="updateElder">
+                        <div class="space-y-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label for="name" class="block text-sm font-medium text-slate-300 mb-1.5">Name</label>
+                                    <input type="text" id="name" x-model="form.name" required
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                </div>
+                                <div>
+                                    <label for="phone" class="block text-sm font-medium text-slate-300 mb-1.5">Phone Number</label>
+                                    <input type="tel" id="phone" x-model="form.phone_number" required placeholder="+1234567890"
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                    <p class="mt-1.5 text-xs text-slate-500">This is the number they will call from</p>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label for="timezone" class="block text-sm font-medium text-slate-300 mb-1.5">Timezone</label>
+                                    <select id="timezone" x-model="form.timezone"
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                        <option value="America/New_York">Eastern Time</option>
+                                        <option value="America/Chicago">Central Time</option>
+                                        <option value="America/Denver">Mountain Time</option>
+                                        <option value="America/Los_Angeles">Pacific Time</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="language" class="block text-sm font-medium text-slate-300 mb-1.5">Language</label>
+                                    <select id="language" x-model="form.language"
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                        <option value="en">English</option>
+                                        <option value="es">Spanish</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div x-show="error" class="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <p class="text-sm text-red-400" x-text="error"></p>
+                            </div>
+                            
+                            <div x-show="success" class="p-4 bg-emerald-500/10 border border-emerald-500/20 rounded-lg">
+                                <p class="text-sm text-emerald-400" x-text="success"></p>
+                            </div>
+
+                            <button type="submit" :disabled="loading" class="btn btn-primary">
+                                <span x-show="!loading">Save Changes</span>
+                                <span x-show="loading">Saving...</span>
+                            </button>
+                        </div>
+                    </form>
+                    {% else %}
+                    <form @submit.prevent="createElder">
+                        <p class="text-slate-400 mb-6">Set up your elder's profile to get started. The phone number is used to identify them when they call.</p>
+                        
+                        <div class="space-y-6">
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label for="name" class="block text-sm font-medium text-slate-300 mb-1.5">Name</label>
+                                    <input type="text" id="name" x-model="form.name" required placeholder="Mom, Dad, Grandma..."
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                </div>
+                                <div>
+                                    <label for="phone" class="block text-sm font-medium text-slate-300 mb-1.5">Phone Number</label>
+                                    <input type="tel" id="phone" x-model="form.phone_number" required placeholder="+1234567890"
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                    <p class="mt-1.5 text-xs text-slate-500">This is the number they will call from</p>
+                                </div>
+                            </div>
+                            
+                            <div class="grid grid-cols-1 md:grid-cols-2 gap-6">
+                                <div>
+                                    <label for="timezone" class="block text-sm font-medium text-slate-300 mb-1.5">Timezone</label>
+                                    <select id="timezone" x-model="form.timezone"
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                        <option value="America/New_York">Eastern Time</option>
+                                        <option value="America/Chicago">Central Time</option>
+                                        <option value="America/Denver">Mountain Time</option>
+                                        <option value="America/Los_Angeles">Pacific Time</option>
+                                    </select>
+                                </div>
+                                <div>
+                                    <label for="language" class="block text-sm font-medium text-slate-300 mb-1.5">Language</label>
+                                    <select id="language" x-model="form.language"
+                                        class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500 focus:border-transparent">
+                                        <option value="en">English</option>
+                                        <option value="es">Spanish</option>
+                                    </select>
+                                </div>
+                            </div>
+
+                            <div x-show="error" class="p-4 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <p class="text-sm text-red-400" x-text="error"></p>
+                            </div>
+
+                            <button type="submit" :disabled="loading" class="btn btn-primary">
+                                <span x-show="!loading">Create Profile</span>
+                                <span x-show="loading">Creating...</span>
+                            </button>
+                        </div>
+                    </form>
+                    {% endif %}
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+function elderProfile() {
+    return {
+        form: {
+            name: '{{ elder.name | default(value="") }}',
+            phone_number: '{{ elder.phone_number | default(value="") }}',
+            timezone: '{{ elder.timezone | default(value="America/New_York") }}',
+            language: '{{ elder.language | default(value="en") }}'
+        },
+        loading: false,
+        error: '',
+        success: '',
+        elderId: '{{ elder.id | default(value="") }}',
+        
+        async createElder() {
+            this.loading = true;
+            this.error = '';
+            
+            try {
+                const res = await fetch('/api/elder', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form)
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    window.location.href = '/dashboard';
+                } else {
+                    this.error = data.error || 'Failed to create profile';
+                }
+            } catch (e) {
+                this.error = 'Network error. Please try again.';
+            }
+            
+            this.loading = false;
+        },
+        
+        async updateElder() {
+            this.loading = true;
+            this.error = '';
+            this.success = '';
+            
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form)
+                });
+                const data = await res.json();
+                
+                if (res.ok) {
+                    this.success = 'Profile updated successfully';
+                } else {
+                    this.error = data.error || 'Failed to update profile';
+                }
+            } catch (e) {
+                this.error = 'Network error. Please try again.';
+            }
+            
+            this.loading = false;
+        }
+    };
+}
+</script>
+{% endblock %}

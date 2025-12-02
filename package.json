@@ -1,0 +1,14 @@
+{
+  "name": "walle",
+  "version": "1.0.0",
+  "description": "Voice AI Assistant for Elderly",
+  "scripts": {
+    "css": "tailwindcss -i ./input.css -o ./static/css/output.css",
+    "css:watch": "tailwindcss -i ./input.css -o ./static/css/output.css --watch",
+    "css:build": "tailwindcss -i ./input.css -o ./static/css/output.css --minify"
+  },
+  "devDependencies": {
+    "tailwindcss": "^3.4.0"
+  }
+}
+

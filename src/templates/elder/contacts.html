@@ -1,0 +1,183 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-950">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="p-8" x-data="contactsManager('{{ elder_id }}')">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-2xl font-bold text-white">Contacts</h1>
+                    <p class="text-slate-400 mt-1">Manage emergency contacts and family members</p>
+                </div>
+                <button @click="showModal = true; resetForm()" class="btn btn-primary">+ Add Contact</button>
+            </div>
+
+            <!-- Contacts Table -->
+            <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                <table class="w-full">
+                    <thead class="bg-slate-800/50">
+                        <tr>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Name</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Relationship</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Phone</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Emergency</th>
+                            <th class="px-6 py-4 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800">
+                        <template x-for="contact in contacts" :key="contact.id">
+                            <tr class="hover:bg-slate-800/30 transition-colors">
+                                <td class="px-6 py-4 text-sm font-medium text-white" x-text="contact.name"></td>
+                                <td class="px-6 py-4 text-sm text-slate-400" x-text="contact.relationship"></td>
+                                <td class="px-6 py-4 text-sm text-slate-400" x-text="contact.phone"></td>
+                                <td class="px-6 py-4">
+                                    <span x-show="contact.is_emergency" class="badge badge-red">Emergency</span>
+                                </td>
+                                <td class="px-6 py-4 text-right space-x-2">
+                                    <button @click="editContact(contact)" class="text-sm text-primary-400 hover:text-primary-300">Edit</button>
+                                    <button @click="deleteContact(contact.id)" class="text-sm text-red-400 hover:text-red-300">Delete</button>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="contacts.length === 0">
+                            <td colspan="5" class="px-6 py-12 text-center text-slate-500">
+                                No contacts yet. Add your first contact above.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Modal -->
+            <div x-show="showModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" @keydown.escape.window="showModal = false">
+                <div class="flex items-center justify-center min-h-screen px-4">
+                    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="showModal = false"></div>
+                    
+                    <div class="relative bg-slate-900 rounded-2xl border border-slate-800 w-full max-w-md p-6">
+                        <h2 class="text-xl font-bold text-white mb-6" x-text="editingId ? 'Edit Contact' : 'Add Contact'"></h2>
+                        
+                        <form @submit.prevent="saveContact" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Name</label>
+                                <input type="text" x-model="form.name" required
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Relationship</label>
+                                <input type="text" x-model="form.relationship" required placeholder="e.g., Daughter, Doctor"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Phone Number</label>
+                                <input type="tel" x-model="form.phone" required
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Notes (optional)</label>
+                                <textarea x-model="form.notes" rows="2"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"></textarea>
+                            </div>
+                            <div>
+                                <label class="flex items-center gap-3">
+                                    <input type="checkbox" x-model="form.is_emergency" class="w-4 h-4 rounded border-slate-600 text-primary-500 focus:ring-primary-500 bg-slate-800">
+                                    <span class="text-sm text-slate-300">Emergency Contact</span>
+                                </label>
+                            </div>
+                            
+                            <div x-show="error" class="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <p class="text-sm text-red-400" x-text="error"></p>
+                            </div>
+                            
+                            <div class="flex justify-end gap-3 pt-4">
+                                <button type="button" @click="showModal = false" class="btn btn-ghost">Cancel</button>
+                                <button type="submit" :disabled="loading" class="btn btn-primary">
+                                    <span x-text="loading ? 'Saving...' : 'Save'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+function contactsManager(elderId) {
+    return {
+        elderId,
+        contacts: [],
+        showModal: false,
+        editingId: null,
+        loading: false,
+        error: '',
+        form: { name: '', relationship: '', phone: '', notes: '', is_emergency: false },
+        
+        async init() {
+            await this.loadContacts();
+        },
+        
+        async loadContacts() {
+            const res = await fetch(`/api/elder/${this.elderId}/contacts`);
+            const data = await res.json();
+            this.contacts = data.items || [];
+        },
+        
+        editContact(contact) {
+            this.editingId = contact.id;
+            this.form = {
+                name: contact.name,
+                relationship: contact.relationship,
+                phone: contact.phone,
+                notes: contact.notes || '',
+                is_emergency: contact.is_emergency
+            };
+            this.showModal = true;
+        },
+        
+        async saveContact() {
+            this.loading = true;
+            this.error = '';
+            
+            const url = this.editingId 
+                ? `/api/elder/${this.elderId}/contacts/${this.editingId}`
+                : `/api/elder/${this.elderId}/contacts`;
+            
+            try {
+                const res = await fetch(url, {
+                    method: this.editingId ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form)
+                });
+                
+                if (res.ok) {
+                    this.showModal = false;
+                    await this.loadContacts();
+                } else {
+                    const data = await res.json();
+                    this.error = data.error || 'Failed to save';
+                }
+            } catch (e) {
+                this.error = 'Network error';
+            }
+            
+            this.loading = false;
+        },
+        
+        async deleteContact(id) {
+            if (!confirm('Delete this contact?')) return;
+            await fetch(`/api/elder/${this.elderId}/contacts/${id}`, { method: 'DELETE' });
+            await this.loadContacts();
+        },
+        
+        resetForm() {
+            this.editingId = null;
+            this.form = { name: '', relationship: '', phone: '', notes: '', is_emergency: false };
+            this.error = '';
+        }
+    };
+}
+</script>
+{% endblock %}

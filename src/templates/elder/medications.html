@@ -1,0 +1,196 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-950">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="p-8" x-data="medicationsManager('{{ elder_id }}')">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-2xl font-bold text-white">Medications</h1>
+                    <p class="text-slate-400 mt-1">Manage medication schedules and reminders</p>
+                </div>
+                <button @click="showModal = true; resetForm()" class="btn btn-primary">+ Add Medication</button>
+            </div>
+
+            <!-- Medications Grid -->
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
+                <template x-for="med in medications" :key="med.id">
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 p-6">
+                        <div class="flex items-start justify-between mb-4">
+                            <div>
+                                <h3 class="text-lg font-semibold text-white" x-text="med.name"></h3>
+                                <p class="text-sm text-slate-400" x-text="med.dosage"></p>
+                            </div>
+                            <div class="w-10 h-10 bg-purple-500/20 rounded-lg flex items-center justify-center text-lg">
+                                💊
+                            </div>
+                        </div>
+                        
+                        <div class="flex flex-wrap gap-2 mb-4">
+                            <template x-for="schedule in med.schedules" :key="schedule.id">
+                                <span class="px-3 py-1 bg-slate-800 text-slate-300 rounded-full text-sm" x-text="schedule.time_of_day"></span>
+                            </template>
+                        </div>
+                        
+                        <p x-show="med.instructions" class="text-sm text-slate-500 mb-4" x-text="med.instructions"></p>
+                        
+                        <div class="flex gap-2">
+                            <button @click="editMedication(med)" class="text-sm text-primary-400 hover:text-primary-300">Edit</button>
+                            <button @click="deleteMedication(med.id)" class="text-sm text-red-400 hover:text-red-300">Delete</button>
+                        </div>
+                    </div>
+                </template>
+            </div>
+            
+            <div x-show="medications.length === 0" class="bg-slate-900 rounded-2xl border border-slate-800 p-12 text-center">
+                <p class="text-slate-500">No medications yet. Add medications to set up reminders.</p>
+            </div>
+
+            <!-- Modal -->
+            <div x-show="showModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" @keydown.escape.window="showModal = false">
+                <div class="flex items-center justify-center min-h-screen px-4">
+                    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="showModal = false"></div>
+                    
+                    <div class="relative bg-slate-900 rounded-2xl border border-slate-800 w-full max-w-md p-6">
+                        <h2 class="text-xl font-bold text-white mb-6" x-text="editingId ? 'Edit Medication' : 'Add Medication'"></h2>
+                        
+                        <form @submit.prevent="saveMedication" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Medication Name</label>
+                                <input type="text" x-model="form.name" required placeholder="e.g., Lipitor"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Dosage</label>
+                                <input type="text" x-model="form.dosage" required placeholder="e.g., 10mg, 2 pills"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Instructions (optional)</label>
+                                <textarea x-model="form.instructions" rows="2" placeholder="e.g., Take with food"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-2">Schedule Times</label>
+                                <p class="text-xs text-slate-500 mb-2">When should reminders be sent?</p>
+                                <div class="space-y-2">
+                                    <template x-for="(time, index) in form.schedule_times" :key="index">
+                                        <div class="flex gap-2">
+                                            <input type="time" x-model="form.schedule_times[index]" required
+                                                class="flex-1 px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white focus:outline-none focus:ring-2 focus:ring-primary-500">
+                                            <button type="button" @click="removeTime(index)" x-show="form.schedule_times.length > 1"
+                                                class="px-3 py-2 text-red-400 hover:text-red-300">×</button>
+                                        </div>
+                                    </template>
+                                    <button type="button" @click="addTime" class="text-sm text-primary-400 hover:text-primary-300">
+                                        + Add Another Time
+                                    </button>
+                                </div>
+                            </div>
+                            
+                            <div x-show="error" class="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <p class="text-sm text-red-400" x-text="error"></p>
+                            </div>
+                            
+                            <div class="flex justify-end gap-3 pt-4">
+                                <button type="button" @click="showModal = false; resetForm()" class="btn btn-ghost">Cancel</button>
+                                <button type="submit" :disabled="loading" class="btn btn-primary">
+                                    <span x-text="loading ? 'Saving...' : 'Save'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+function medicationsManager(elderId) {
+    return {
+        elderId,
+        medications: [],
+        showModal: false,
+        editingId: null,
+        loading: false,
+        error: '',
+        form: { name: '', dosage: '', instructions: '', schedule_times: ['08:00'] },
+        
+        async init() {
+            await this.loadMedications();
+        },
+        
+        async loadMedications() {
+            const res = await fetch(`/api/elder/${this.elderId}/medications`);
+            const data = await res.json();
+            this.medications = data.items || [];
+        },
+        
+        editMedication(med) {
+            this.editingId = med.id;
+            this.form = {
+                name: med.name,
+                dosage: med.dosage,
+                instructions: med.instructions || '',
+                schedule_times: med.schedules.map(s => s.time_of_day) || ['08:00']
+            };
+            if (this.form.schedule_times.length === 0) this.form.schedule_times = ['08:00'];
+            this.showModal = true;
+        },
+        
+        addTime() {
+            this.form.schedule_times.push('08:00');
+        },
+        
+        removeTime(index) {
+            this.form.schedule_times.splice(index, 1);
+        },
+        
+        async saveMedication() {
+            this.loading = true;
+            this.error = '';
+            
+            const url = this.editingId 
+                ? `/api/elder/${this.elderId}/medications/${this.editingId}`
+                : `/api/elder/${this.elderId}/medications`;
+            
+            try {
+                const res = await fetch(url, {
+                    method: this.editingId ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form)
+                });
+                
+                if (res.ok) {
+                    this.showModal = false;
+                    this.resetForm();
+                    await this.loadMedications();
+                } else {
+                    const data = await res.json();
+                    this.error = data.error || 'Failed to save';
+                }
+            } catch (e) {
+                this.error = 'Network error';
+            }
+            
+            this.loading = false;
+        },
+        
+        async deleteMedication(id) {
+            if (!confirm('Delete this medication?')) return;
+            await fetch(`/api/elder/${this.elderId}/medications/${id}`, { method: 'DELETE' });
+            await this.loadMedications();
+        },
+        
+        resetForm() {
+            this.editingId = null;
+            this.form = { name: '', dosage: '', instructions: '', schedule_times: ['08:00'] };
+            this.error = '';
+        }
+    };
+}
+</script>
+{% endblock %}

@@ -1,0 +1,92 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-950">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="p-8" x-data="reminderLogs('{{ elder_id }}')">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-2xl font-bold text-white">Reminder Logs</h1>
+                    <p class="text-slate-400 mt-1">View medication reminder history</p>
+                </div>
+                <button @click="loadLogs" class="btn btn-ghost">🔄 Refresh</button>
+            </div>
+
+            <!-- Reminders List -->
+            <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                <table class="w-full">
+                    <thead class="bg-slate-800/50">
+                        <tr>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Date/Time</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Medication</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Method</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Status</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800">
+                        <template x-for="reminder in reminders" :key="reminder.id">
+                            <tr class="hover:bg-slate-800/30 transition-colors">
+                                <td class="px-6 py-4 text-sm text-slate-300" x-text="formatDate(reminder.timestamp)"></td>
+                                <td class="px-6 py-4 text-sm text-white" x-text="reminder.medication_name"></td>
+                                <td class="px-6 py-4">
+                                    <span class="badge badge-blue" x-text="reminder.delivery_method"></span>
+                                </td>
+                                <td class="px-6 py-4">
+                                    <span class="badge" :class="{
+                                        'badge-green': reminder.status === 'confirmed',
+                                        'badge-blue': reminder.status === 'delivered',
+                                        'badge-yellow': reminder.status === 'pending',
+                                        'badge-red': reminder.status === 'no_answer' || reminder.status === 'failed'
+                                    }" x-text="reminder.status"></span>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="reminders.length === 0">
+                            <td colspan="4" class="px-6 py-12 text-center text-slate-500">
+                                No reminders yet
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Pagination -->
+            <div x-show="totalPages > 1" class="mt-6 flex justify-center gap-2">
+                <button @click="page = Math.max(1, page - 1); loadLogs()" :disabled="page === 1" class="btn btn-ghost btn-sm">Previous</button>
+                <span class="px-4 py-2 text-sm text-slate-400" x-text="`Page ${page} of ${totalPages}`"></span>
+                <button @click="page = Math.min(totalPages, page + 1); loadLogs()" :disabled="page === totalPages" class="btn btn-ghost btn-sm">Next</button>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+function reminderLogs(elderId) {
+    return {
+        elderId,
+        reminders: [],
+        page: 1,
+        totalPages: 1,
+        
+        async init() {
+            await this.loadLogs();
+        },
+        
+        async loadLogs() {
+            const res = await fetch(`/api/elder/${this.elderId}/logs/reminders?page=${this.page}`);
+            const data = await res.json();
+            this.reminders = data.items || [];
+            this.totalPages = data.total_pages || 1;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '-';
+            return new Date(dateStr).toLocaleString();
+        }
+    };
+}
+</script>
+{% endblock %}
+

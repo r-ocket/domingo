@@ -1,0 +1,109 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-950">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="p-8" x-data="callLogs('{{ elder_id }}')">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-2xl font-bold text-white">Call Logs</h1>
+                    <p class="text-slate-400 mt-1">View call history and transcripts</p>
+                </div>
+                <button @click="loadLogs" class="btn btn-ghost">🔄 Refresh</button>
+            </div>
+
+            <!-- Calls List -->
+            <div class="space-y-4">
+                <template x-for="call in calls" :key="call.id">
+                    <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                        <div class="p-6">
+                            <div class="flex items-center justify-between">
+                                <div class="flex items-center gap-4">
+                                    <div class="w-12 h-12 rounded-full flex items-center justify-center text-2xl"
+                                         :class="call.direction === 'inbound' ? 'bg-blue-500/20' : 'bg-emerald-500/20'">
+                                        <span x-text="call.direction === 'inbound' ? '📥' : '📤'"></span>
+                                    </div>
+                                    <div>
+                                        <p class="font-semibold text-white" x-text="call.direction === 'inbound' ? 'Incoming Call' : 'Outgoing Call'"></p>
+                                        <p class="text-sm text-slate-400" x-text="formatDate(call.started_at)"></p>
+                                    </div>
+                                </div>
+                                <div class="flex items-center gap-3">
+                                    <span class="badge" :class="{
+                                        'badge-green': call.status === 'completed',
+                                        'badge-red': call.status === 'failed' || call.status === 'no-answer',
+                                        'badge-yellow': call.status === 'in-progress'
+                                    }" x-text="call.status"></span>
+                                    <span class="text-sm text-slate-400" x-text="formatDuration(call.duration)"></span>
+                                </div>
+                            </div>
+                            
+                            <div x-show="call.summary_text" class="mt-4 p-4 bg-slate-800/50 rounded-lg">
+                                <p class="text-sm text-slate-300" x-text="call.summary_text"></p>
+                            </div>
+                            
+                            <button x-show="call.transcript" @click="call.expanded = !call.expanded"
+                                    class="mt-4 text-sm text-primary-400 hover:text-primary-300">
+                                <span x-text="call.expanded ? 'Hide Transcript ↑' : 'Show Transcript ↓'"></span>
+                            </button>
+                            
+                            <div x-show="call.expanded && call.transcript" class="mt-4 p-4 bg-slate-800/30 rounded-lg border border-slate-700/50">
+                                <pre class="text-sm text-slate-300 whitespace-pre-wrap font-mono" x-text="call.transcript"></pre>
+                            </div>
+                        </div>
+                    </div>
+                </template>
+                
+                <div x-show="calls.length === 0" class="bg-slate-900 rounded-2xl border border-slate-800 p-12 text-center">
+                    <div class="text-4xl mb-4">📞</div>
+                    <p class="text-slate-500">No calls yet</p>
+                </div>
+            </div>
+
+            <!-- Pagination -->
+            <div x-show="totalPages > 1" class="mt-6 flex justify-center gap-2">
+                <button @click="page = Math.max(1, page - 1); loadLogs()" :disabled="page === 1" class="btn btn-ghost btn-sm">Previous</button>
+                <span class="px-4 py-2 text-sm text-slate-400" x-text="`Page ${page} of ${totalPages}`"></span>
+                <button @click="page = Math.min(totalPages, page + 1); loadLogs()" :disabled="page === totalPages" class="btn btn-ghost btn-sm">Next</button>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+function callLogs(elderId) {
+    return {
+        elderId,
+        calls: [],
+        page: 1,
+        totalPages: 1,
+        
+        async init() {
+            await this.loadLogs();
+        },
+        
+        async loadLogs() {
+            const res = await fetch(`/api/elder/${this.elderId}/logs/calls?page=${this.page}`);
+            const data = await res.json();
+            this.calls = (data.items || []).map(c => ({ ...c, expanded: false }));
+            this.totalPages = data.total_pages || 1;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '-';
+            return new Date(dateStr).toLocaleString();
+        },
+        
+        formatDuration(seconds) {
+            if (!seconds) return '-';
+            const mins = Math.floor(seconds / 60);
+            const secs = seconds % 60;
+            return `${mins}m ${secs}s`;
+        }
+    };
+}
+</script>
+{% endblock %}
+

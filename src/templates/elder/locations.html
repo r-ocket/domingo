@@ -1,0 +1,176 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="min-h-screen bg-slate-950">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="transition-all duration-300" :class="sidebarOpen ? 'ml-64' : 'ml-20'">
+        <div class="p-8" x-data="locationsManager('{{ elder_id }}')">
+            <div class="flex justify-between items-center mb-8">
+                <div>
+                    <h1 class="text-2xl font-bold text-white">Saved Locations</h1>
+                    <p class="text-slate-400 mt-1">Places your elder can request rides to</p>
+                </div>
+                <button @click="showModal = true; resetForm()" class="btn btn-primary">+ Add Location</button>
+            </div>
+
+            <!-- Locations Table -->
+            <div class="bg-slate-900 rounded-2xl border border-slate-800 overflow-hidden">
+                <table class="w-full">
+                    <thead class="bg-slate-800/50">
+                        <tr>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Name</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Address</th>
+                            <th class="px-6 py-4 text-left text-xs font-semibold text-slate-400 uppercase tracking-wider">Type</th>
+                            <th class="px-6 py-4 text-right text-xs font-semibold text-slate-400 uppercase tracking-wider">Actions</th>
+                        </tr>
+                    </thead>
+                    <tbody class="divide-y divide-slate-800">
+                        <template x-for="location in locations" :key="location.id">
+                            <tr class="hover:bg-slate-800/30 transition-colors">
+                                <td class="px-6 py-4 text-sm font-medium text-white" x-text="location.name"></td>
+                                <td class="px-6 py-4 text-sm text-slate-400" x-text="location.address"></td>
+                                <td class="px-6 py-4">
+                                    <span x-show="location.is_home" class="badge badge-green">Home</span>
+                                </td>
+                                <td class="px-6 py-4 text-right space-x-2">
+                                    <button @click="editLocation(location)" class="text-sm text-primary-400 hover:text-primary-300">Edit</button>
+                                    <button @click="deleteLocation(location.id)" class="text-sm text-red-400 hover:text-red-300">Delete</button>
+                                </td>
+                            </tr>
+                        </template>
+                        <tr x-show="locations.length === 0">
+                            <td colspan="4" class="px-6 py-12 text-center text-slate-500">
+                                No locations yet. Add places your elder visits.
+                            </td>
+                        </tr>
+                    </tbody>
+                </table>
+            </div>
+
+            <!-- Modal -->
+            <div x-show="showModal" x-cloak class="fixed inset-0 z-50 overflow-y-auto" @keydown.escape.window="showModal = false">
+                <div class="flex items-center justify-center min-h-screen px-4">
+                    <div class="fixed inset-0 bg-black/60 backdrop-blur-sm" @click="showModal = false"></div>
+                    
+                    <div class="relative bg-slate-900 rounded-2xl border border-slate-800 w-full max-w-md p-6">
+                        <h2 class="text-xl font-bold text-white mb-6" x-text="editingId ? 'Edit Location' : 'Add Location'"></h2>
+                        
+                        <form @submit.prevent="saveLocation" class="space-y-4">
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Name</label>
+                                <input type="text" x-model="form.name" required placeholder="e.g., Doctor's Office"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500">
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Address</label>
+                                <textarea x-model="form.address" required rows="2" placeholder="Full street address"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"></textarea>
+                            </div>
+                            <div>
+                                <label class="block text-sm font-medium text-slate-300 mb-1.5">Extra Instructions (optional)</label>
+                                <textarea x-model="form.extra_instructions" rows="2" placeholder="e.g., Use back entrance"
+                                    class="w-full px-4 py-3 bg-slate-800 border border-slate-700 rounded-lg text-white placeholder-slate-500 focus:outline-none focus:ring-2 focus:ring-primary-500"></textarea>
+                            </div>
+                            <div>
+                                <label class="flex items-center gap-3">
+                                    <input type="checkbox" x-model="form.is_home" class="w-4 h-4 rounded border-slate-600 text-primary-500 focus:ring-primary-500 bg-slate-800">
+                                    <span class="text-sm text-slate-300">This is the home address (pickup location)</span>
+                                </label>
+                            </div>
+                            
+                            <div x-show="error" class="p-3 bg-red-500/10 border border-red-500/20 rounded-lg">
+                                <p class="text-sm text-red-400" x-text="error"></p>
+                            </div>
+                            
+                            <div class="flex justify-end gap-3 pt-4">
+                                <button type="button" @click="showModal = false" class="btn btn-ghost">Cancel</button>
+                                <button type="submit" :disabled="loading" class="btn btn-primary">
+                                    <span x-text="loading ? 'Saving...' : 'Save'"></span>
+                                </button>
+                            </div>
+                        </form>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+function locationsManager(elderId) {
+    return {
+        elderId,
+        locations: [],
+        showModal: false,
+        editingId: null,
+        loading: false,
+        error: '',
+        form: { name: '', address: '', extra_instructions: '', is_home: false },
+        
+        async init() {
+            await this.loadLocations();
+        },
+        
+        async loadLocations() {
+            const res = await fetch(`/api/elder/${this.elderId}/locations`);
+            const data = await res.json();
+            this.locations = data.items || [];
+        },
+        
+        editLocation(location) {
+            this.editingId = location.id;
+            this.form = {
+                name: location.name,
+                address: location.address,
+                extra_instructions: location.extra_instructions || '',
+                is_home: location.is_home
+            };
+            this.showModal = true;
+        },
+        
+        async saveLocation() {
+            this.loading = true;
+            this.error = '';
+            
+            const url = this.editingId 
+                ? `/api/elder/${this.elderId}/locations/${this.editingId}`
+                : `/api/elder/${this.elderId}/locations`;
+            
+            try {
+                const res = await fetch(url, {
+                    method: this.editingId ? 'PUT' : 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.form)
+                });
+                
+                if (res.ok) {
+                    this.showModal = false;
+                    this.resetForm();
+                    await this.loadLocations();
+                } else {
+                    const data = await res.json();
+                    this.error = data.error || 'Failed to save';
+                }
+            } catch (e) {
+                this.error = 'Network error';
+            }
+            
+            this.loading = false;
+        },
+        
+        async deleteLocation(id) {
+            if (!confirm('Delete this location?')) return;
+            await fetch(`/api/elder/${this.elderId}/locations/${id}`, { method: 'DELETE' });
+            await this.loadLocations();
+        },
+        
+        resetForm() {
+            this.editingId = null;
+            this.form = { name: '', address: '', extra_instructions: '', is_home: false };
+            this.error = '';
+        }
+    };
+}
+</script>
+{% endblock %}
