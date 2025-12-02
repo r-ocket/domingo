@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="app-shell">
+<div class="app-shell" x-data="{ showCreateModal: false }">
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
@@ -9,68 +9,146 @@
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Elders</h1>
-                    <p class="page-subtitle">View all elder profiles in the system</p>
+                    <h1 class="page-title">Adultos Mayores</h1>
+                    <p class="page-subtitle">Ver todos los perfiles de adultos mayores en el sistema</p>
+                </div>
+                <div class="page-actions">
+                    <button @click="showCreateModal = true" class="btn btn-primary">
+                        + Nuevo Adulto Mayor
+                    </button>
                 </div>
             </header>
 
             <!-- Elders Table -->
-            <div class="data-table-wrapper">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Phone</th>
-                            <th>Caregiver</th>
-                            <th>Status</th>
-                            <th>Last Call</th>
-                            <th>Total Calls</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for elder in elders %}
-                        <tr>
-                            <td class="font-medium text-stone-100">{{ elder.name }}</td>
-                            <td class="text-mono text-sm">{{ elder.phone_number }}</td>
-                            <td>{{ elder.caregiver_name }}</td>
-                            <td>
-                                {% if elder.status == "active" %}
-                                <span class="badge badge-green">Active</span>
-                                {% else %}
-                                <span class="badge badge-gray">{{ elder.status }}</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-stone-400 text-sm">
-                                {% if elder.last_call_at %}
-                                {{ elder.last_call_at | date(format="%b %d, %H:%M") }}
-                                {% else %}
-                                <span class="text-stone-500">Never</span>
-                                {% endif %}
-                            </td>
-                            <td class="font-mono text-sm">{{ elder.total_calls | default(value=0) }}</td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                {% if elders is undefined or elders | length == 0 %}
-                <div class="data-table-empty">
-                    No elders found.
-                </div>
-                {% endif %}
+            <div class="data-table-wrapper" id="elders-table"
+                 hx-get="/api/admin/elders" 
+                 hx-trigger="load, eldersUpdated from:body"
+                 hx-swap="innerHTML">
+                <div class="text-center py-8 text-stone-500">Cargando...</div>
             </div>
 
-            {% if pagination %}
-            <div class="pagination">
-                {% if pagination.has_prev %}
-                <a href="?page={{ pagination.page - 1 }}" class="btn btn-ghost btn-sm">← Previous</a>
-                {% endif %}
-                <span class="pagination-info">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
-                {% if pagination.has_next %}
-                <a href="?page={{ pagination.page + 1 }}" class="btn btn-ghost btn-sm">Next →</a>
-                {% endif %}
+            <!-- Create Elder Modal -->
+            <div class="modal" x-show="showCreateModal" x-cloak @keydown.escape.window="showCreateModal = false">
+                <div class="modal-backdrop" @click="showCreateModal = false"></div>
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">Crear Adulto Mayor</h3>
+                        <button @click="showCreateModal = false" class="modal-close">&times;</button>
+                    </div>
+                    <form hx-post="/debug/elder" 
+                          hx-target="#create-result"
+                          hx-swap="innerHTML"
+                          @htmx:after-request="if(event.detail.successful) { showCreateModal = false; htmx.trigger(document.body, 'eldersUpdated'); }"
+                          class="space-y-4">
+                        <div id="create-result"></div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">ID del Cuidador</label>
+                            <input type="text" name="caregiver_id" class="form-input font-mono text-sm" 
+                                   placeholder="UUID del cuidador" required>
+                            <p class="form-hint">Ve a Cuidadores y copia el ID del cuidador</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Nombre</label>
+                            <input type="text" name="name" class="form-input" placeholder="Abuela Rosa" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Número de Teléfono</label>
+                            <input type="tel" name="phone_number" class="form-input" placeholder="+521234567890" required>
+                            <p class="form-hint">El número desde el que llamarán</p>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Zona Horaria</label>
+                            <select name="timezone" class="form-select">
+                                <option value="America/Mexico_City">Ciudad de México</option>
+                                <option value="America/Cancun">Cancún (Sureste)</option>
+                                <option value="America/Monterrey">Monterrey</option>
+                                <option value="America/Tijuana">Tijuana (Pacífico)</option>
+                            </select>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" @click="showCreateModal = false" class="btn btn-ghost">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Crear</button>
+                        </div>
+                    </form>
+                </div>
             </div>
-            {% endif %}
         </div>
     </main>
 </div>
+
+<script>
+// Transform JSON API response to HTML table
+htmx.on('htmx:beforeSwap', function(evt) {
+    if (evt.detail.target.id === 'elders-table') {
+        try {
+            const data = JSON.parse(evt.detail.serverResponse);
+            if (data.items) {
+                let html = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Teléfono</th>
+                                <th>Estado</th>
+                                <th>Zona Horaria</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                if (data.items.length === 0) {
+                    html += `<tr><td colspan="5" class="text-center text-stone-500 py-8">No hay adultos mayores registrados</td></tr>`;
+                } else {
+                    data.items.forEach(e => {
+                        const statusClass = e.status === 'active' ? 'badge-green' : 'badge-gray';
+                        const statusText = e.status === 'active' ? 'Activo' : e.status;
+                        
+                        html += `
+                            <tr>
+                                <td class="font-medium text-stone-100">${e.name}</td>
+                                <td class="text-mono text-sm">${e.phone_number}</td>
+                                <td><span class="badge ${statusClass}">${statusText}</span></td>
+                                <td class="text-stone-400 text-sm">${e.timezone}</td>
+                                <td>
+                                    <button class="btn btn-ghost btn-sm" onclick="navigator.clipboard.writeText('${e.id}'); alert('ID copiado: ${e.id}')">Copiar ID</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                html += `</tbody></table>`;
+                
+                if (data.total_pages > 1) {
+                    html += `
+                        <div class="pagination">
+                            ${data.page > 1 ? `<a href="?page=${data.page - 1}" class="btn btn-ghost btn-sm">← Anterior</a>` : ''}
+                            <span class="pagination-info">Página ${data.page} de ${data.total_pages}</span>
+                            ${data.page < data.total_pages ? `<a href="?page=${data.page + 1}" class="btn btn-ghost btn-sm">Siguiente →</a>` : ''}
+                        </div>
+                    `;
+                }
+                
+                evt.detail.serverResponse = html;
+            }
+        } catch (e) {
+            // Not JSON, leave as is
+        }
+    }
+    
+    // Format create result
+    if (evt.detail.target.id === 'create-result') {
+        try {
+            const data = JSON.parse(evt.detail.serverResponse);
+            if (data.error) {
+                evt.detail.serverResponse = `<div class="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">${data.error}</div>`;
+            } else if (data.id) {
+                evt.detail.serverResponse = `<div class="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-sm">✓ Adulto mayor creado: ${data.name}</div>`;
+            }
+        } catch (e) {}
+    }
+});
+</script>
 {% endblock %}

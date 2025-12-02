@@ -9,12 +9,12 @@
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Dashboard</h1>
-                    <p class="page-subtitle">Welcome back! Here's an overview of your elder's status.</p>
+                    <h1 class="page-title">Panel Principal</h1>
+                    <p class="page-subtitle">¡Bienvenido de vuelta! Aquí está un resumen del estado de tu adulto mayor.</p>
                 </div>
                 {% if not elder %}
                 <div class="page-actions">
-                    <a href="/elder/profile" class="btn btn-primary">Set Up Elder Profile</a>
+                <a href="/elder/profile" class="btn btn-primary">Configurar Perfil</a>
                 </div>
                 {% endif %}
             </header>
@@ -23,7 +23,7 @@
             <!-- Stats Grid -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <div class="flex items-center gap-3 mb-2">
                             <span class="icon-box bg-primary-500/20 text-xl">👴</span>
                             <h3 class="text-base font-display font-semibold text-stone-100">{{ elder.name }}</h3>
@@ -34,25 +34,25 @@
                 </div>
 
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <p class="stat-value">{{ contacts_count }}</p>
-                        <p class="stat-label">Contacts</p>
+                        <p class="stat-label">Contactos</p>
                     </div>
                     <span class="stat-icon bg-sky-500/20">👥</span>
                 </div>
 
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <p class="stat-value">{{ locations_count }}</p>
-                        <p class="stat-label">Saved Locations</p>
+                        <p class="stat-label">Ubicaciones</p>
                     </div>
                     <span class="stat-icon bg-emerald-500/20">📍</span>
                 </div>
 
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <p class="stat-value">{{ medications_count }}</p>
-                        <p class="stat-label">Medications</p>
+                        <p class="stat-label">Medicamentos</p>
                     </div>
                     <span class="stat-icon bg-purple-500/20">💊</span>
                 </div>
@@ -62,43 +62,43 @@
             <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">Quick Actions</h2>
+                        <h2 class="card-title">Acciones Rápidas</h2>
                     </div>
                     <div class="grid grid-cols-2 gap-3">
                         <a href="/elder/contacts" class="action-card">
                             <span class="action-card-icon">➕</span>
-                            <span class="action-card-text">Add Contact</span>
+                            <span class="action-card-text">Agregar Contacto</span>
                         </a>
                         <a href="/elder/locations" class="action-card">
                             <span class="action-card-icon">📍</span>
-                            <span class="action-card-text">Add Location</span>
+                            <span class="action-card-text">Agregar Ubicación</span>
                         </a>
                         <a href="/elder/medications" class="action-card">
                             <span class="action-card-icon">💊</span>
-                            <span class="action-card-text">Add Medication</span>
+                            <span class="action-card-text">Agregar Medicamento</span>
                         </a>
                         <a href="/elder/logs/calls" class="action-card">
                             <span class="action-card-icon">📞</span>
-                            <span class="action-card-text">View Calls</span>
+                            <span class="action-card-text">Ver Llamadas</span>
                         </a>
                     </div>
                 </div>
 
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">Recent Activity</h2>
+                        <h2 class="card-title">Actividad Reciente</h2>
                     </div>
                     {% if last_call_at %}
                     <div class="action-card">
                         <span class="icon-box-sm bg-primary-500/20 text-base">📞</span>
                         <div>
-                            <p class="text-sm font-medium text-stone-100">Last call</p>
+                            <p class="text-sm font-medium text-stone-100">Última llamada</p>
                             <p class="text-xs text-stone-400">{{ last_call_at }}</p>
                         </div>
                     </div>
                     {% else %}
                     <div class="text-center py-8 text-stone-500">
-                        <p>No recent activity</p>
+                        <p>Sin actividad reciente</p>
                     </div>
                     {% endif %}
                 </div>
@@ -108,11 +108,11 @@
             <!-- Empty State -->
             <div class="empty-state">
                 <div class="empty-state-icon">👋</div>
-                <h2 class="empty-state-title">Welcome to Walle!</h2>
+                <h2 class="empty-state-title">¡Bienvenido a Walle!</h2>
                 <p class="empty-state-text">
-                    Get started by setting up your elder's profile. This includes their phone number so we can recognize their calls.
+                    Comienza configurando el perfil de tu adulto mayor. Esto incluye su número de teléfono para que podamos reconocer sus llamadas.
                 </p>
-                <a href="/elder/profile" class="btn btn-primary btn-lg">Set Up Elder Profile</a>
+                <a href="/elder/profile" class="btn btn-primary btn-lg">Configurar Perfil</a>
             </div>
             {% endif %}
         </div>

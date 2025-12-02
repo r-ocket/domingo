@@ -133,7 +133,7 @@ pub async fn get_emergency_contacts(
 
 // Query and response types
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct PaginationQuery {
     pub page: Option<u32>,
     pub per_page: Option<u32>,

@@ -1,0 +1,236 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="app-shell">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
+        <div class="page-container">
+            <!-- Page Header -->
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Debug Tools</h1>
+                    <p class="page-subtitle">Development utilities for testing</p>
+                </div>
+            </header>
+
+            <!-- Health Status -->
+            <div class="card mb-6">
+                <div class="card-header">
+                    <h2 class="card-title">System Health</h2>
+                    <button 
+                        class="btn btn-ghost btn-sm"
+                        hx-get="/debug/health"
+                        hx-target="#health-status"
+                        hx-swap="innerHTML"
+                    >
+                        Refresh
+                    </button>
+                </div>
+                <div id="health-status" hx-get="/debug/health" hx-trigger="load" hx-swap="innerHTML">
+                    <p class="text-stone-500">Loading...</p>
+                </div>
+            </div>
+
+            <!-- Two Column Layout -->
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Create Caregiver Form -->
+                <div class="card" x-data="{ showResult: false, result: null }">
+                    <div class="card-header">
+                        <h2 class="card-title">Create Caregiver</h2>
+                    </div>
+                    <form 
+                        hx-post="/debug/caregiver"
+                        hx-target="#caregiver-result"
+                        hx-swap="innerHTML"
+                        @htmx:after-request="showResult = true"
+                        class="space-y-4"
+                    >
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input type="text" name="name" class="form-input" placeholder="Test User" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Email</label>
+                            <input type="email" name="email" class="form-input" placeholder="test@example.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Password</label>
+                            <input type="password" name="password" class="form-input" placeholder="password123" required minlength="8">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Role</label>
+                            <select name="role" class="form-select">
+                                <option value="caregiver">Caregiver</option>
+                                <option value="admin">Admin</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-full">Create Caregiver</button>
+                    </form>
+                    <div id="caregiver-result" x-show="showResult" class="mt-4"></div>
+                </div>
+
+                <!-- Create Elder Form -->
+                <div class="card" x-data="{ showResult: false, result: null }">
+                    <div class="card-header">
+                        <h2 class="card-title">Create Elder</h2>
+                    </div>
+                    <form 
+                        hx-post="/debug/elder"
+                        hx-target="#elder-result"
+                        hx-swap="innerHTML"
+                        @htmx:after-request="showResult = true"
+                        class="space-y-4"
+                    >
+                        <div class="form-group">
+                            <label class="form-label">Caregiver ID</label>
+                            <input type="text" name="caregiver_id" class="form-input font-mono text-sm" placeholder="UUID of caregiver" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Name</label>
+                            <input type="text" name="name" class="form-input" placeholder="Elder Name" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Phone Number</label>
+                            <input type="tel" name="phone_number" class="form-input" placeholder="+1234567890" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Timezone</label>
+                            <select name="timezone" class="form-select">
+                                <option value="America/New_York">America/New_York (ET)</option>
+                                <option value="America/Chicago">America/Chicago (CT)</option>
+                                <option value="America/Denver">America/Denver (MT)</option>
+                                <option value="America/Los_Angeles">America/Los_Angeles (PT)</option>
+                                <option value="UTC">UTC</option>
+                            </select>
+                        </div>
+                        <button type="submit" class="btn btn-primary w-full">Create Elder</button>
+                    </form>
+                    <div id="elder-result" x-show="showResult" class="mt-4"></div>
+                </div>
+            </div>
+
+            <!-- API Endpoints Reference -->
+            <div class="card mt-6">
+                <div class="card-header">
+                    <h2 class="card-title">Debug API Endpoints</h2>
+                </div>
+                <div class="space-y-3">
+                    <div class="flex items-center gap-4 py-2 border-b border-surface-700/50">
+                        <span class="badge badge-green">POST</span>
+                        <code class="text-mono text-sm text-stone-300">/debug/caregiver</code>
+                        <span class="text-stone-500 text-sm">Create a caregiver account</span>
+                    </div>
+                    <div class="flex items-center gap-4 py-2 border-b border-surface-700/50">
+                        <span class="badge badge-green">POST</span>
+                        <code class="text-mono text-sm text-stone-300">/debug/elder</code>
+                        <span class="text-stone-500 text-sm">Create an elder profile</span>
+                    </div>
+                    <div class="flex items-center gap-4 py-2">
+                        <span class="badge badge-blue">GET</span>
+                        <code class="text-mono text-sm text-stone-300">/debug/health</code>
+                        <span class="text-stone-500 text-sm">Check system health status</span>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Recent Creations Log -->
+            <div class="card mt-6" x-data="{ logs: [] }">
+                <div class="card-header">
+                    <h2 class="card-title">Activity Log</h2>
+                    <button @click="logs = []" class="btn btn-ghost btn-sm" x-show="logs.length > 0">Clear</button>
+                </div>
+                <div id="activity-log" class="space-y-2">
+                    <template x-if="logs.length === 0">
+                        <p class="text-stone-500 text-center py-4">No activity yet. Create users above to see results.</p>
+                    </template>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+// Format health check response as HTML
+htmx.on('htmx:beforeSwap', function(evt) {
+    if (evt.detail.target.id === 'health-status' && evt.detail.xhr.status === 200) {
+        try {
+            const data = JSON.parse(evt.detail.serverResponse);
+            evt.detail.serverResponse = `
+                <div class="space-y-3">
+                    <div class="flex items-center justify-between py-2">
+                        <span class="text-sm text-stone-300">Overall Status</span>
+                        <span class="flex items-center gap-2">
+                            <span class="status-dot ${data.status === 'healthy' ? 'status-dot-green' : 'status-dot-yellow'}"></span>
+                            <span class="text-sm text-stone-400">${data.status}</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between py-2">
+                        <span class="text-sm text-stone-300">Database</span>
+                        <span class="flex items-center gap-2">
+                            <span class="status-dot ${data.database === 'connected' ? 'status-dot-green' : 'status-dot-red'}"></span>
+                            <span class="text-sm text-stone-400">${data.database}</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between py-2">
+                        <span class="text-sm text-stone-300">Twilio</span>
+                        <span class="flex items-center gap-2">
+                            <span class="status-dot status-dot-green"></span>
+                            <span class="text-sm text-stone-400">${data.services.twilio}</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between py-2">
+                        <span class="text-sm text-stone-300">OpenAI</span>
+                        <span class="flex items-center gap-2">
+                            <span class="status-dot status-dot-green"></span>
+                            <span class="text-sm text-stone-400">${data.services.openai}</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between py-2">
+                        <span class="text-sm text-stone-300">Uber</span>
+                        <span class="flex items-center gap-2">
+                            <span class="status-dot status-dot-green"></span>
+                            <span class="text-sm text-stone-400">${data.services.uber}</span>
+                        </span>
+                    </div>
+                    <div class="flex items-center justify-between py-2">
+                        <span class="text-sm text-stone-300">Stripe</span>
+                        <span class="flex items-center gap-2">
+                            <span class="status-dot status-dot-green"></span>
+                            <span class="text-sm text-stone-400">${data.services.stripe}</span>
+                        </span>
+                    </div>
+                </div>
+            `;
+        } catch (e) {
+            // Not JSON, leave as is
+        }
+    }
+    
+    // Format caregiver/elder creation response
+    if ((evt.detail.target.id === 'caregiver-result' || evt.detail.target.id === 'elder-result')) {
+        try {
+            const data = JSON.parse(evt.detail.serverResponse);
+            if (data.error) {
+                evt.detail.serverResponse = `
+                    <div class="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">
+                        Error: ${data.error}
+                    </div>
+                `;
+            } else {
+                const type = evt.detail.target.id === 'caregiver-result' ? 'Caregiver' : 'Elder';
+                evt.detail.serverResponse = `
+                    <div class="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-sm">
+                        <p class="text-emerald-400 font-medium mb-2">${type} created successfully!</p>
+                        <pre class="text-stone-400 text-xs overflow-x-auto">${JSON.stringify(data, null, 2)}</pre>
+                    </div>
+                `;
+            }
+        } catch (e) {
+            // Not JSON, leave as is
+        }
+    }
+});
+</script>
+{% endblock %}
+

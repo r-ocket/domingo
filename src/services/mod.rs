@@ -8,6 +8,7 @@ mod medication_service;
 mod ride_service;
 mod call_service;
 mod reminder_scheduler;
+mod seed;
 
 pub use auth::*;
 pub use elder_service::*;
@@ -18,4 +19,5 @@ pub use ride_service::*;
 pub use call_service::*;
 pub use reminder_scheduler::ReminderScheduler;
 pub use reminder_scheduler::update_reminder_status;
+pub use seed::seed_admin_if_empty;
 

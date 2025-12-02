@@ -7,10 +7,10 @@
             <div class="auth-logo">
                 <span class="text-4xl">🤖</span>
             </div>
-            <h1 class="auth-title">Create your account</h1>
-            <p class="auth-subtitle">Start caring for your elder with Walle</p>
+            <h1 class="auth-title">Crea tu cuenta</h1>
+            <p class="auth-subtitle">Comienza a cuidar a tu adulto mayor con Walle</p>
         </div>
-        
+
         <div class="auth-form">
             <form hx-post="/register" 
                   hx-target="#form-errors" 
@@ -20,33 +20,33 @@
                 <div id="form-errors"></div>
                 
                 <div class="form-group">
-                    <label for="name" class="form-label">Your Name</label>
+                    <label for="name" class="form-label">Tu Nombre</label>
                     <input type="text" id="name" name="name" required autofocus 
-                           placeholder="Jane Doe" class="form-input">
-                </div>
-                
+                           placeholder="María García" class="form-input">
+                    </div>
+
                 <div class="form-group">
-                    <label for="email" class="form-label">Email</label>
+                    <label for="email" class="form-label">Correo electrónico</label>
                     <input type="email" id="email" name="email" required 
-                           placeholder="you@example.com" class="form-input">
-                </div>
-                
+                           placeholder="tu@ejemplo.com" class="form-input">
+                    </div>
+
                 <div class="form-group">
-                    <label for="password" class="form-label">Password</label>
+                    <label for="password" class="form-label">Contraseña</label>
                     <input type="password" id="password" name="password" required minlength="8"
-                           placeholder="At least 8 characters" class="form-input">
+                           placeholder="Mínimo 8 caracteres" class="form-input">
                 </div>
                 
-                <button type="submit" class="btn btn-primary w-full">Create Account</button>
+                <button type="submit" class="btn btn-primary w-full">Crear Cuenta</button>
                 
                 <p class="text-xs text-stone-500 text-center">
-                    By creating an account, you agree to our Terms of Service and Privacy Policy.
+                    Al crear una cuenta, aceptas nuestros Términos de Servicio y Política de Privacidad.
                 </p>
             </form>
         </div>
-        
+
         <p class="auth-footer">
-            Already have an account? <a href="/login" class="auth-link">Sign in</a>
+            ¿Ya tienes cuenta? <a href="/login" class="auth-link">Iniciar sesión</a>
         </p>
     </div>
 </div>

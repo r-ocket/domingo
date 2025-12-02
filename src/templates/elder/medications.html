@@ -14,7 +14,7 @@
                 </div>
                 <div class="page-actions">
                     <button @click="showModal = true; scheduleCount = 1" class="btn btn-primary">+ Add Medication</button>
-                </div>
+            </div>
             </header>
 
             <!-- Medications Grid -->
@@ -36,7 +36,7 @@
             <!-- Add Modal -->
             <div x-show="showModal" x-cloak class="modal-container" @keydown.escape.window="showModal = false">
                 <div class="modal-backdrop" @click="showModal = false"></div>
-                
+                    
                 <div class="modal">
                     <h2 class="modal-title">Add Medication</h2>
                     
@@ -48,37 +48,37 @@
                         <div class="form-group">
                             <label class="form-label">Medication Name</label>
                             <input type="text" name="name" required placeholder="e.g., Lipitor" class="form-input">
-                        </div>
+                            </div>
                         <div class="form-group">
                             <label class="form-label">Dosage</label>
                             <input type="text" name="dosage" required placeholder="e.g., 10mg, 2 pills" class="form-input">
-                        </div>
+                            </div>
                         <div class="form-group">
                             <label class="form-label">Instructions (optional)</label>
                             <textarea name="instructions" rows="2" placeholder="e.g., Take with food" class="form-textarea"></textarea>
-                        </div>
+                            </div>
                         <div class="form-group">
                             <label class="form-label">Schedule Times</label>
                             <p class="form-hint">When should reminders be sent?</p>
                             <div class="space-y-2 mt-2">
                                 <template x-for="i in scheduleCount" :key="i">
-                                    <div class="flex gap-2">
+                                        <div class="flex gap-2">
                                         <input type="time" name="schedule_times[]" required class="form-input flex-1" value="08:00">
                                         <button type="button" @click="scheduleCount--" x-show="scheduleCount > 1"
                                             class="btn btn-ghost btn-icon text-red-400">×</button>
-                                    </div>
-                                </template>
+                                        </div>
+                                    </template>
                                 <button type="button" @click="scheduleCount++" class="btn btn-link text-sm">
-                                    + Add Another Time
-                                </button>
+                                        + Add Another Time
+                                    </button>
+                                </div>
                             </div>
-                        </div>
-                        
+                            
                         <div class="modal-footer">
                             <button type="button" @click="showModal = false" class="btn btn-ghost">Cancel</button>
                             <button type="submit" class="btn btn-primary">Save</button>
-                        </div>
-                    </form>
+                            </div>
+                        </form>
                 </div>
             </div>
 

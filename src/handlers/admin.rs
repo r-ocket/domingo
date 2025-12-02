@@ -20,17 +20,20 @@ use crate::services::{CallService, ElderService, RideService};
 use crate::AppState;
 
 /// List all caregivers (admin only)
+#[tracing::instrument(skip(state, _admin), fields(page = pagination.page, per_page = pagination.per_page))]
 pub async fn list_caregivers(
     State(state): State<AppState>,
     _admin: AdminUser,
     Query(pagination): Query<PaginationQuery>,
 ) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!("Listing caregivers");
     let pagination = Pagination {
         page: pagination.page.unwrap_or(1),
         per_page: pagination.per_page.unwrap_or(20),
     };
     
     let caregivers = CaregiverRepository::list(&state.db, &pagination).await?;
+    tracing::info!(total = caregivers.total, "Retrieved caregivers list");
     
     Ok(Json(crate::handlers::contacts::PaginatedResponse {
         items: caregivers.items.into_iter().map(|c| crate::handlers::auth::CaregiverResponse::from(c)).collect(),
@@ -42,11 +45,13 @@ pub async fn list_caregivers(
 }
 
 /// Get caregiver details (admin only)
+#[tracing::instrument(skip(state, _admin), fields(caregiver_id = %id))]
 pub async fn get_caregiver(
     State(state): State<AppState>,
     _admin: AdminUser,
     Path(id): Path<Uuid>,
 ) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!("Fetching caregiver details");
     let caregiver = CaregiverRepository::find_by_id(&state.db, id).await?;
     let elder = ElderService::get_elder_for_caregiver(&state.db, id).await?;
     let subscription = SubscriptionRepository::find_by_caregiver(&state.db, id).await?;
@@ -59,16 +64,19 @@ pub async fn get_caregiver(
 }
 
 /// Update caregiver (admin only)
+#[tracing::instrument(skip(state, _admin), fields(caregiver_id = %id, new_role = ?req.role))]
 pub async fn update_caregiver(
     State(state): State<AppState>,
     _admin: AdminUser,
     Path(id): Path<Uuid>,
     Json(req): Json<AdminUpdateCaregiverRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    tracing::info!("Updating caregiver");
     if let Some(role) = req.role {
         let role = role.parse()
             .map_err(|_| crate::domain::DomainError::Validation("Invalid role".to_string()))?;
         CaregiverRepository::update_role(&state.db, id, role).await?;
+        tracing::info!("Caregiver role updated");
     }
     
     let caregiver = CaregiverRepository::find_by_id(&state.db, id).await?;
@@ -152,14 +160,24 @@ pub async fn list_all_ride_logs(
 }
 
 /// Get admin statistics
+#[tracing::instrument(skip(state, _admin))]
 pub async fn get_stats(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!("Fetching admin statistics");
     let active_elders = ElderService::count_active_elders(&state.db).await?;
     let active_subscriptions = SubscriptionRepository::count_active(&state.db).await?;
     let calls_today = CallService::count_calls_today(&state.db).await?;
     let rides_today = RideService::count_rides_today(&state.db).await?;
+    
+    tracing::info!(
+        active_elders = active_elders,
+        active_subscriptions = active_subscriptions,
+        calls_today = calls_today,
+        rides_today = rides_today,
+        "Admin stats retrieved"
+    );
     
     Ok(Json(AdminStatsResponse {
         active_elders,
@@ -171,7 +189,7 @@ pub async fn get_stats(
 
 // Request/response types
 
-#[derive(serde::Deserialize)]
+#[derive(Debug, serde::Deserialize)]
 pub struct AdminUpdateCaregiverRequest {
     pub role: Option<String>,
 }

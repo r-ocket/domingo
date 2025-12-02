@@ -412,6 +412,29 @@ pub async fn admin_logs(
     }
 }
 
+/// Admin debug tools page
+pub async fn admin_debug(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    let _session = match get_session(&state, &jar) {
+        Some(s) if s.role == crate::domain::UserRole::Admin => s,
+        _ => return Redirect::to("/login").into_response(),
+    };
+    
+    let mut context = Context::new();
+    context.insert("title", "Debug Tools - Admin - Walle");
+    context.insert("is_admin", &true);
+    
+    match state.templates.render("admin/debug.html", &context) {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => {
+            tracing::error!("Template error: {}", e);
+            Html("<h1>Error loading page</h1>").into_response()
+        }
+    }
+}
+
 fn get_session(state: &AppState, jar: &CookieJar) -> Option<crate::domain::Session> {
     jar.get(SESSION_COOKIE)
         .and_then(|c| decode_session(c.value(), &state.config.session_secret))

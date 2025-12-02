@@ -9,9 +9,9 @@
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Elder Profile</h1>
-                    <p class="page-subtitle">Manage your elder's information</p>
-                </div>
+                    <h1 class="page-title">Perfil del Adulto Mayor</h1>
+                    <p class="page-subtitle">Administra la información de tu adulto mayor</p>
+            </div>
             </header>
 
             <div class="max-w-2xl">
@@ -25,78 +25,80 @@
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="form-group">
-                                <label for="name" class="form-label">Name</label>
+                                <label for="name" class="form-label">Nombre</label>
                                 <input type="text" id="name" name="name" value="{{ elder.name }}" required class="form-input">
                             </div>
                             <div class="form-group">
-                                <label for="phone" class="form-label">Phone Number</label>
+                                <label for="phone" class="form-label">Número de Teléfono</label>
                                 <input type="tel" id="phone" name="phone_number" value="{{ elder.phone_number }}" required class="form-input">
-                                <p class="form-hint">This is the number they will call from</p>
+                                <p class="form-hint">Este es el número desde el que llamarán</p>
+                                </div>
                             </div>
-                        </div>
-                        
+
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="form-group">
-                                <label for="timezone" class="form-label">Timezone</label>
+                                <label for="timezone" class="form-label">Zona Horaria</label>
                                 <select id="timezone" name="timezone" class="form-select">
-                                    <option value="America/New_York" {% if elder.timezone == "America/New_York" %}selected{% endif %}>Eastern Time</option>
-                                    <option value="America/Chicago" {% if elder.timezone == "America/Chicago" %}selected{% endif %}>Central Time</option>
-                                    <option value="America/Denver" {% if elder.timezone == "America/Denver" %}selected{% endif %}>Mountain Time</option>
-                                    <option value="America/Los_Angeles" {% if elder.timezone == "America/Los_Angeles" %}selected{% endif %}>Pacific Time</option>
+                                    <option value="America/Mexico_City" {% if elder.timezone == "America/Mexico_City" %}selected{% endif %}>Ciudad de México</option>
+                                    <option value="America/Cancun" {% if elder.timezone == "America/Cancun" %}selected{% endif %}>Cancún (Sureste)</option>
+                                    <option value="America/Monterrey" {% if elder.timezone == "America/Monterrey" %}selected{% endif %}>Monterrey</option>
+                                    <option value="America/Tijuana" {% if elder.timezone == "America/Tijuana" %}selected{% endif %}>Tijuana (Pacífico)</option>
+                                    <option value="America/Chihuahua" {% if elder.timezone == "America/Chihuahua" %}selected{% endif %}>Chihuahua</option>
                                 </select>
                             </div>
                             <div class="form-group">
-                                <label for="language" class="form-label">Language</label>
+                                <label for="language" class="form-label">Idioma</label>
                                 <select id="language" name="language" class="form-select">
-                                    <option value="en" {% if elder.language == "en" %}selected{% endif %}>English</option>
-                                    <option value="es" {% if elder.language == "es" %}selected{% endif %}>Spanish</option>
+                                    <option value="es" {% if elder.language == "es" %}selected{% endif %}>Español</option>
+                                    <option value="en" {% if elder.language == "en" %}selected{% endif %}>Inglés</option>
                                 </select>
                             </div>
                         </div>
 
-                        <button type="submit" class="btn btn-primary">Save Changes</button>
+                        <button type="submit" class="btn btn-primary">Guardar Cambios</button>
                     </form>
                     {% else %}
                     <form hx-post="/elder" 
                           hx-swap="none"
                           @htmx:after-request="if(event.detail.successful) window.location.href = '/dashboard'"
                           class="space-y-5">
-                        <p class="text-stone-400 mb-6">Set up your elder's profile to get started. The phone number is used to identify them when they call.</p>
+                        <p class="text-stone-400 mb-6">Configura el perfil de tu adulto mayor para comenzar. El número de teléfono se usa para identificarlos cuando llaman.</p>
                         
                         <div id="form-feedback"></div>
                         
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="form-group">
-                                <label for="name" class="form-label">Name</label>
-                                <input type="text" id="name" name="name" required placeholder="Mom, Dad, Grandma..." class="form-input">
-                            </div>
+                                <label for="name" class="form-label">Nombre</label>
+                                <input type="text" id="name" name="name" required placeholder="Mamá, Papá, Abuela..." class="form-input">
+                                </div>
                             <div class="form-group">
-                                <label for="phone" class="form-label">Phone Number</label>
-                                <input type="tel" id="phone" name="phone_number" required placeholder="+1234567890" class="form-input">
-                                <p class="form-hint">This is the number they will call from</p>
+                                <label for="phone" class="form-label">Número de Teléfono</label>
+                                <input type="tel" id="phone" name="phone_number" required placeholder="+521234567890" class="form-input">
+                                <p class="form-hint">Este es el número desde el que llamarán</p>
+                                </div>
                             </div>
-                        </div>
-                        
+                            
                         <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
                             <div class="form-group">
-                                <label for="timezone" class="form-label">Timezone</label>
+                                <label for="timezone" class="form-label">Zona Horaria</label>
                                 <select id="timezone" name="timezone" class="form-select">
-                                    <option value="America/New_York">Eastern Time</option>
-                                    <option value="America/Chicago">Central Time</option>
-                                    <option value="America/Denver">Mountain Time</option>
-                                    <option value="America/Los_Angeles">Pacific Time</option>
-                                </select>
-                            </div>
+                                        <option value="America/Mexico_City">Ciudad de México</option>
+                                        <option value="America/Cancun">Cancún (Sureste)</option>
+                                        <option value="America/Monterrey">Monterrey</option>
+                                        <option value="America/Tijuana">Tijuana (Pacífico)</option>
+                                        <option value="America/Chihuahua">Chihuahua</option>
+                                    </select>
+                                </div>
                             <div class="form-group">
-                                <label for="language" class="form-label">Language</label>
+                                <label for="language" class="form-label">Idioma</label>
                                 <select id="language" name="language" class="form-select">
-                                    <option value="en">English</option>
-                                    <option value="es">Spanish</option>
-                                </select>
+                                        <option value="es">Español</option>
+                                        <option value="en">Inglés</option>
+                                    </select>
+                                </div>
                             </div>
-                        </div>
 
-                        <button type="submit" class="btn btn-primary">Create Profile</button>
+                        <button type="submit" class="btn btn-primary">Crear Perfil</button>
                     </form>
                     {% endif %}
                 </div>

@@ -22,12 +22,13 @@ use crate::services::{
 use crate::AppState;
 
 /// Handle Twilio media stream WebSocket connection
+#[tracing::instrument(skip(ws, state), fields(call_sid = %call_sid))]
 pub async fn media_stream(
     ws: WebSocketUpgrade,
     State(state): State<AppState>,
     Path(call_sid): Path<String>,
 ) -> impl IntoResponse {
-    tracing::info!("Media stream connection for call {}", call_sid);
+    tracing::info!("Establishing media stream WebSocket connection");
     
     ws.on_upgrade(move |socket| handle_media_stream(socket, state, call_sid))
 }
@@ -118,41 +119,41 @@ async fn handle_media_stream(
                 }
                 // Handle events from OpenAI
                 Some(event) = openai_session.recv_event() => {
-                    match event {
-                        RealtimeServerEvent::ResponseAudioDelta { delta } => {
-                            // Send audio to Twilio
-                            let _ = twilio_tx_clone.send(delta).await;
-                        }
+            match event {
+                RealtimeServerEvent::ResponseAudioDelta { delta } => {
+                    // Send audio to Twilio
+                    let _ = twilio_tx_clone.send(delta).await;
+                }
                         RealtimeServerEvent::ResponseAudioTranscriptDelta { delta } => {
                             // Accumulate transcript
                             let mut t = transcript_clone.lock().await;
                             t.push_str(&delta);
-                        }
-                        RealtimeServerEvent::ResponseFunctionCallArgumentsDone { call_id, name, arguments } => {
-                            tracing::info!("Function call: {} with args: {}", name, arguments);
-                            
-                            // Execute the function
-                            let result = execute_tool(
-                                &state_clone,
-                                elder_id,
-                                &name,
-                                &arguments,
-                                session_id,
-                                &call_sid_clone,
-                            ).await;
-                            
-                            // Record tool usage
-                            let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
-                            
-                            // Send result back to OpenAI
-                            if let Err(e) = openai_session.send_function_result(&call_id, result).await {
-                                tracing::error!("Failed to send function result: {}", e);
-                            }
-                        }
-                        RealtimeServerEvent::Error { error } => {
-                            tracing::error!("OpenAI error: {} - {}", error.r#type, error.message);
-                        }
-                        _ => {}
+                }
+                RealtimeServerEvent::ResponseFunctionCallArgumentsDone { call_id, name, arguments } => {
+                    tracing::info!("Function call: {} with args: {}", name, arguments);
+                    
+                    // Execute the function
+                    let result = execute_tool(
+                        &state_clone,
+                        elder_id,
+                        &name,
+                        &arguments,
+                        session_id,
+                        &call_sid_clone,
+                    ).await;
+                    
+                    // Record tool usage
+                    let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
+                    
+                    // Send result back to OpenAI
+                    if let Err(e) = openai_session.send_function_result(&call_id, result).await {
+                        tracing::error!("Failed to send function result: {}", e);
+                    }
+                }
+                RealtimeServerEvent::Error { error } => {
+                    tracing::error!("OpenAI error: {} - {}", error.r#type, error.message);
+                }
+                _ => {}
                     }
                 }
                 else => break,

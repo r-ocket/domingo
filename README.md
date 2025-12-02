@@ -181,9 +181,35 @@ UBER_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
 # Stripe
 STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
 STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxx
+
+# Seed Admin (optional - creates on startup if DB empty)
+SEED_ADMIN_EMAIL=admin@example.com
+SEED_ADMIN_PASSWORD=your-secure-password
 ```
 
-### Setup & Run
+### Quick Start (Development)
+
+The fastest way to get running locally:
+
+```bash
+# 1. Create database
+createdb walle
+
+# 2. Run (uses defaults, no .env needed for basic dev)
+cargo run
+
+# 3. Open http://localhost:3000/login
+#    Default admin: admin@walle.local / admin123
+
+# 4. Go to Admin > Cuidadores to create users
+# 5. Go to Admin > Adultos Mayores to create elder profiles
+```
+
+On first run with an empty database, an admin user is automatically created:
+- **Default**: `admin@walle.local` / `admin123`
+- **Custom**: Set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` env vars
+
+### Full Setup & Run
 
 ```bash
 # 1. Clone the repository
@@ -202,7 +228,7 @@ npm run css:build
 # 5. Run the server (migrations run automatically)
 cargo run
 
-# The server will start at http://localhost:8080
+# The server will start at http://localhost:3000
 ```
 
 ### Development
@@ -288,6 +314,28 @@ Migration files must follow the naming pattern: `V{version}__{description}.sql`
 | `/admin/caregivers` | All caregivers |
 | `/admin/elders` | All elders |
 | `/admin/logs` | System logs |
+| `/admin/debug` | Debug tools |
+
+### Debug Endpoints (No Auth)
+
+These endpoints are useful for development and testing:
+
+| Method | Path | Description |
+|--------|------|-------------|
+| POST | `/debug/caregiver` | Create a caregiver `{name, email, password, role}` |
+| POST | `/debug/elder` | Create an elder `{caregiver_id, name, phone_number, timezone}` |
+| GET | `/debug/health` | Health check with DB/service status |
+
+---
+
+## Localization
+
+The app is configured for **Spanish (Mexico)**:
+
+- **Voice AI**: GPT-4o responds in Mexican Spanish
+- **Twilio Voice**: Uses `Polly.Mia` (Amazon's Mexican Spanish voice)
+- **Web UI**: All interfaces in Spanish
+- **Timezones**: Mexican timezone options (CDMX, Cancún, Monterrey, Tijuana)
 
 ---
 

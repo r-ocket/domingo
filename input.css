@@ -152,7 +152,7 @@
   .btn-lg {
     @apply px-6 py-3 text-base;
   }
-
+  
   .btn-icon {
     @apply p-2;
   }
@@ -172,7 +172,7 @@
   .form-hint {
     @apply text-xs text-stone-500 mt-1;
   }
-
+  
   .form-input {
     @apply w-full px-3 py-2.5 text-sm bg-surface-800 border border-surface-600 rounded text-stone-100 placeholder:text-stone-500 focus:outline-none focus:ring-2 focus:ring-primary-500/50 focus:border-primary-500 transition-colors;
   }
@@ -207,7 +207,7 @@
   .form-success-text {
     @apply text-sm text-emerald-400;
   }
-
+  
   /* ==========================================
      DATA TABLES
      ========================================== */
@@ -251,7 +251,7 @@
   /* ==========================================
      BADGES
      ========================================== */
-
+  
   .badge {
     @apply inline-flex items-center px-2 py-0.5 rounded text-xs font-medium;
   }
@@ -367,11 +367,11 @@
   .sidebar-section-title {
     @apply px-3 mb-2 text-xs font-semibold text-stone-500 uppercase tracking-wider;
   }
-
+  
   .nav-item {
     @apply flex items-center gap-3 px-3 py-2 text-sm font-medium text-stone-400 rounded transition-colors hover:bg-surface-800 hover:text-stone-100;
   }
-
+  
   .nav-item.active {
     @apply bg-primary-500/10 text-primary-400;
   }

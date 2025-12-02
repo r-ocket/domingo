@@ -19,67 +19,71 @@
     <nav class="sidebar-nav">
         <a href="/dashboard" class="nav-item">
             <span class="nav-item-icon">📊</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Dashboard</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Panel Principal</span>
         </a>
         <a href="/elder/profile" class="nav-item">
             <span class="nav-item-icon">👤</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Elder Profile</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Perfil del Adulto Mayor</span>
         </a>
         <a href="/elder/contacts" class="nav-item">
             <span class="nav-item-icon">👥</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Contacts</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Contactos</span>
         </a>
         <a href="/elder/locations" class="nav-item">
             <span class="nav-item-icon">📍</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Locations</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Ubicaciones</span>
         </a>
         <a href="/elder/medications" class="nav-item">
             <span class="nav-item-icon">💊</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Medications</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Medicamentos</span>
         </a>
         
         <div class="sidebar-section">
-            <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Logs</p>
+            <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Historial</p>
         </div>
         
         <a href="/elder/logs/calls" class="nav-item">
             <span class="nav-item-icon">📞</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Call Logs</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Llamadas</span>
         </a>
         <a href="/elder/logs/rides" class="nav-item">
             <span class="nav-item-icon">🚗</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Ride Logs</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Viajes</span>
         </a>
         <a href="/elder/logs/reminders" class="nav-item">
             <span class="nav-item-icon">⏰</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Reminders</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Recordatorios</span>
         </a>
         
         <div class="sidebar-section">
             <a href="/billing" class="nav-item">
                 <span class="nav-item-icon">💳</span>
-                <span x-show="sidebarOpen" x-transition.opacity>Billing</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Facturación</span>
             </a>
         </div>
         
         {% if is_admin %}
         <div class="sidebar-section">
-            <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Admin</p>
+            <p class="sidebar-section-title" x-show="sidebarOpen" x-transition.opacity>Administrador</p>
             <a href="/admin" class="nav-item">
                 <span class="nav-item-icon">📈</span>
-                <span x-show="sidebarOpen" x-transition.opacity>Dashboard</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Panel Admin</span>
             </a>
             <a href="/admin/caregivers" class="nav-item">
                 <span class="nav-item-icon">👤</span>
-                <span x-show="sidebarOpen" x-transition.opacity>Caregivers</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Cuidadores</span>
             </a>
             <a href="/admin/elders" class="nav-item">
                 <span class="nav-item-icon">👴</span>
-                <span x-show="sidebarOpen" x-transition.opacity>Elders</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Adultos Mayores</span>
             </a>
             <a href="/admin/logs" class="nav-item">
                 <span class="nav-item-icon">📋</span>
-                <span x-show="sidebarOpen" x-transition.opacity>System Logs</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Registros del Sistema</span>
+            </a>
+            <a href="/admin/debug" class="nav-item">
+                <span class="nav-item-icon">🔧</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Herramientas Debug</span>
             </a>
         </div>
         {% endif %}
@@ -90,7 +94,7 @@
         <button @click="fetch('/api/auth/logout', { method: 'POST' }).then(() => window.location.href = '/login')"
                 class="nav-item w-full">
             <span class="nav-item-icon">🚪</span>
-            <span x-show="sidebarOpen" x-transition.opacity>Logout</span>
+            <span x-show="sidebarOpen" x-transition.opacity>Cerrar Sesión</span>
         </button>
     </div>
 </aside>

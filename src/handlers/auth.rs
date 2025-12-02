@@ -15,22 +15,28 @@ use crate::services::{encode_session, AuthService};
 use crate::AppState;
 
 /// Register a new caregiver account
+#[tracing::instrument(skip(state, req), fields(email = %req.email))]
 pub async fn register(
     State(state): State<AppState>,
     Json(req): Json<CreateCaregiverRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    tracing::info!("Registering new caregiver");
     let caregiver = AuthService::register(&state.db, &req).await?;
+    tracing::info!(caregiver_id = %caregiver.id, "Caregiver registered successfully");
     
     Ok((StatusCode::CREATED, Json(CaregiverResponse::from(caregiver))))
 }
 
 /// Log in to an existing account
+#[tracing::instrument(skip(state, jar, req), fields(email = %req.email))]
 pub async fn login(
     State(state): State<AppState>,
     jar: CookieJar,
     Json(req): Json<LoginRequest>,
 ) -> Result<impl IntoResponse, ApiError> {
+    tracing::info!("Login attempt");
     let session = AuthService::login(&state.db, &req).await?;
+    tracing::info!(caregiver_id = %session.caregiver_id, role = %session.role, "Login successful");
     
     // Encode session and set cookie
     let session_value = encode_session(&session, &state.config.session_secret);
@@ -55,10 +61,12 @@ pub async fn logout(jar: CookieJar) -> impl IntoResponse {
 }
 
 /// Get current user profile
+#[tracing::instrument(skip(state, auth), fields(caregiver_id = %auth.session.caregiver_id))]
 pub async fn get_profile(
     State(state): State<AppState>,
     auth: AuthUser,
 ) -> Result<impl IntoResponse, ApiError> {
+    tracing::debug!("Fetching profile");
     let caregiver = AuthService::get_caregiver(&state.db, auth.session.caregiver_id).await?;
     
     // Get elder if exists

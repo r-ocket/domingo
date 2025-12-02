@@ -14,11 +14,12 @@ use crate::services::{CallService, ElderService};
 use crate::AppState;
 
 /// Handle incoming voice call from Twilio
+#[tracing::instrument(skip(state), fields(call_sid = %payload.call_sid, from = %payload.from))]
 pub async fn incoming_call(
     State(state): State<AppState>,
     Form(payload): Form<IncomingCallPayload>,
 ) -> impl IntoResponse {
-    tracing::info!("Incoming call from {} (SID: {})", payload.from, payload.call_sid);
+    tracing::info!("Processing incoming call");
     
     // Look up elder by phone number
     match ElderService::get_elder_by_phone(&state.db, &payload.from).await {
@@ -53,7 +54,7 @@ pub async fn incoming_call(
             tracing::warn!("Unknown caller: {}", payload.from);
             
             let twiml = state.twilio.generate_error_twiml(
-                "I'm sorry, I don't recognize this phone number. Please contact your caregiver to set up your account."
+                "Lo siento, no reconozco este número de teléfono. Por favor contacta a tu cuidador para configurar tu cuenta."
             );
             
             (
@@ -66,11 +67,12 @@ pub async fn incoming_call(
 }
 
 /// Handle call status callback from Twilio
+#[tracing::instrument(skip(state), fields(call_sid = %payload.call_sid, status = %payload.call_status))]
 pub async fn call_status(
     State(state): State<AppState>,
     Form(payload): Form<CallStatusPayload>,
 ) -> impl IntoResponse {
-    tracing::info!("Call status update: {} - {}", payload.call_sid, payload.call_status);
+    tracing::info!("Processing call status update");
     
     // Update call session if call completed
     if payload.call_status == "completed" || payload.call_status == "failed" {
@@ -97,12 +99,14 @@ pub async fn call_status(
 }
 
 /// Generate TwiML for medication reminder calls
+#[tracing::instrument(skip(state), fields(reminder_id = ?params.reminder_id, medication = ?params.med))]
 pub async fn reminder_twiml(
     State(state): State<AppState>,
     Query(params): Query<ReminderTwimlParams>,
 ) -> impl IntoResponse {
-    let medication_name = params.med.unwrap_or_else(|| "your medication".to_string());
-    let dosage = params.dosage.unwrap_or_else(|| "as prescribed".to_string());
+    tracing::info!("Generating reminder TwiML");
+    let medication_name = params.med.unwrap_or_else(|| "tu medicamento".to_string());
+    let dosage = params.dosage.unwrap_or_else(|| "según lo recetado".to_string());
     let reminder_id = params.reminder_id.unwrap_or_default();
     
     let twiml = state.twilio.generate_reminder_twiml(&medication_name, &dosage, &reminder_id);
@@ -114,7 +118,7 @@ pub async fn reminder_twiml(
     )
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ReminderTwimlParams {
     pub reminder_id: Option<String>,
     pub med: Option<String>,
@@ -122,12 +126,13 @@ pub struct ReminderTwimlParams {
 }
 
 /// Handle reminder confirmation callback
+#[tracing::instrument(skip(state), fields(reminder_id = ?params.reminder_id, digits = ?form.digits))]
 pub async fn reminder_confirm(
     State(state): State<AppState>,
     Query(params): Query<ReminderConfirmParams>,
     Form(form): Form<ReminderConfirmForm>,
 ) -> impl IntoResponse {
-    tracing::info!("Reminder confirm: {:?} digits={:?}", params.reminder_id, form.digits);
+    tracing::info!("Processing reminder confirmation");
     
     let confirmed = form.digits.as_deref() == Some("1");
     
@@ -144,15 +149,15 @@ pub async fn reminder_confirm(
     }
     
     let message = if confirmed {
-        "Thank you for confirming. Have a great day!"
+        "Gracias por confirmar. ¡Que tengas un excelente día!"
     } else {
-        "Please remember to take your medication. Goodbye."
+        "Por favor recuerda tomar tu medicamento. Hasta luego."
     };
     
     let twiml = format!(
         r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="Polly.Joanna">{}</Say>
+    <Say voice="Polly.Mia" language="es-MX">{}</Say>
     <Hangup/>
 </Response>"#,
         message
@@ -165,12 +170,12 @@ pub async fn reminder_confirm(
     )
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ReminderConfirmParams {
     pub reminder_id: Option<String>,
 }
 
-#[derive(Deserialize)]
+#[derive(Debug, Deserialize)]
 pub struct ReminderConfirmForm {
     #[serde(rename = "Digits")]
     pub digits: Option<String>,

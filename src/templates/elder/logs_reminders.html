@@ -35,7 +35,7 @@
                             <td>
                                 <span class="text-stone-100">{{ reminder.medication_name }}</span>
                                 <span class="text-stone-500 text-xs block">{{ reminder.dosage }}</span>
-                            </td>
+                                </td>
                             <td>
                                 {% if reminder.delivery_method == "call" %}
                                 <span class="flex items-center gap-1.5 text-sm text-stone-300">
@@ -46,7 +46,7 @@
                                     <span>💬</span> SMS
                                 </span>
                                 {% endif %}
-                            </td>
+                                </td>
                             <td>
                                 {% if reminder.status == "confirmed" %}
                                 <span class="badge badge-green">Confirmed</span>

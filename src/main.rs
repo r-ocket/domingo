@@ -3,10 +3,11 @@
 use std::net::SocketAddr;
 use std::sync::Arc;
 
-use axum::Router;
+use axum::{middleware as axum_middleware, Router};
 use tokio::net::TcpListener;
 use tower_http::cors::CorsLayer;
-use tower_http::trace::TraceLayer;
+use tower_http::trace::{DefaultOnRequest, DefaultOnResponse, TraceLayer};
+use tracing::Level;
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 mod config;
@@ -101,6 +102,11 @@ async fn main() -> anyhow::Result<()> {
     // Initialize application state
     let state = AppState::new(config.clone()).await?;
     
+    // Seed admin user if database is empty
+    if let Err(e) = services::seed_admin_if_empty(&state.db, &config).await {
+        tracing::warn!("Failed to seed admin user: {}", e);
+    }
+    
     // Start medication reminder scheduler as background task
     let scheduler = Arc::new(ReminderScheduler::new(
         state.db.clone(),
@@ -112,12 +118,40 @@ async fn main() -> anyhow::Result<()> {
     });
     tracing::info!("Medication reminder scheduler started");
     
-    // Build router
+    // Build router with middleware stack
+    // Order matters: outermost layer processes first on request, last on response
     let app = Router::new()
         .merge(handlers::api_routes())
         .merge(handlers::page_routes())
         .nest_service("/static", tower_http::services::ServeDir::new("static"))
-        .layer(TraceLayer::new_for_http())
+        // Request ID middleware - generates/propagates request IDs
+        .layer(axum_middleware::from_fn(middleware::request_id_middleware))
+        // Tracing layer with custom configuration
+        .layer(
+            TraceLayer::new_for_http()
+                .on_request(DefaultOnRequest::new().level(Level::INFO))
+                .on_response(
+                    DefaultOnResponse::new()
+                        .level(Level::INFO)
+                        .latency_unit(tower_http::LatencyUnit::Millis)
+                )
+                .make_span_with(|request: &axum::http::Request<_>| {
+                    // Include request ID in span if available
+                    let request_id = request
+                        .extensions()
+                        .get::<middleware::RequestId>()
+                        .map(|r| r.to_string())
+                        .unwrap_or_else(|| "unknown".to_string());
+                    
+                    tracing::info_span!(
+                        "http_request",
+                        request_id = %request_id,
+                        method = %request.method(),
+                        path = %request.uri().path(),
+                        version = ?request.version(),
+                    )
+                })
+        )
         .layer(CorsLayer::permissive())
         .with_state(state);
     

@@ -12,11 +12,14 @@ use crate::repositories::postgres::{CaregiverRepository, SubscriptionRepository}
 use crate::AppState;
 
 /// Handle Stripe webhooks
+#[tracing::instrument(skip(state, headers, body))]
 pub async fn handle_webhook(
     State(state): State<AppState>,
     headers: HeaderMap,
     body: Bytes,
 ) -> impl IntoResponse {
+    tracing::debug!("Processing Stripe webhook");
+    
     // Get signature from headers
     let signature = match headers.get("stripe-signature") {
         Some(sig) => sig.to_str().unwrap_or_default(),

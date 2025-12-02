@@ -13,6 +13,7 @@ mod voice_stream;
 mod admin;
 mod pages;
 mod billing;
+mod debug;
 
 use axum::{
     routing::{get, post, put, delete},
@@ -91,6 +92,11 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/admin/logs/calls", get(admin::list_all_call_logs))
         .route("/api/admin/logs/rides", get(admin::list_all_ride_logs))
         .route("/api/admin/stats", get(admin::get_stats))
+        
+        // Debug routes (no auth - development only)
+        .route("/debug/caregiver", post(debug::create_caregiver))
+        .route("/debug/elder", post(debug::create_elder))
+        .route("/debug/health", get(debug::health))
 }
 
 /// Build page routes (HTML)
@@ -117,5 +123,6 @@ pub fn page_routes() -> Router<AppState> {
         .route("/admin/caregivers", get(pages::admin_caregivers))
         .route("/admin/elders", get(pages::admin_elders))
         .route("/admin/logs", get(pages::admin_logs))
+        .route("/admin/debug", get(pages::admin_debug))
 }
 

@@ -14,7 +14,7 @@
                 </div>
                 <div class="page-actions">
                     <button @click="showModal = true; editId = null" class="btn btn-primary">+ Add Contact</button>
-                </div>
+            </div>
             </header>
 
             <!-- Contacts Table -->
@@ -45,10 +45,10 @@
             <!-- Modal -->
             <div x-show="showModal" x-cloak class="modal-container" @keydown.escape.window="showModal = false">
                 <div class="modal-backdrop" @click="showModal = false"></div>
-                
+                    
                 <div class="modal">
                     <h2 class="modal-title" x-text="editId ? 'Edit Contact' : 'Add Contact'"></h2>
-                    
+                        
                     <form hx-post="/elder/contacts" 
                           hx-target="#contacts-table" 
                           hx-swap="beforeend"
@@ -59,31 +59,31 @@
                         <div class="form-group">
                             <label class="form-label">Name</label>
                             <input type="text" name="name" required class="form-input">
-                        </div>
+                            </div>
                         <div class="form-group">
                             <label class="form-label">Relationship</label>
                             <input type="text" name="relationship" required placeholder="e.g., Daughter, Doctor" class="form-input">
-                        </div>
+                            </div>
                         <div class="form-group">
                             <label class="form-label">Phone Number</label>
                             <input type="tel" name="phone" required class="form-input">
-                        </div>
+                            </div>
                         <div class="form-group">
                             <label class="form-label">Notes (optional)</label>
                             <textarea name="notes" rows="2" class="form-textarea"></textarea>
-                        </div>
+                            </div>
                         <div class="form-group">
-                            <label class="flex items-center gap-3">
+                                <label class="flex items-center gap-3">
                                 <input type="checkbox" name="is_emergency" value="true" class="form-checkbox">
                                 <span class="text-sm text-stone-300">Emergency Contact</span>
-                            </label>
-                        </div>
-                        
+                                </label>
+                            </div>
+                            
                         <div class="modal-footer">
-                            <button type="button" @click="showModal = false" class="btn btn-ghost">Cancel</button>
+                                <button type="button" @click="showModal = false" class="btn btn-ghost">Cancel</button>
                             <button type="submit" class="btn btn-primary">Save</button>
-                        </div>
-                    </form>
+                            </div>
+                        </form>
                 </div>
             </div>
 

@@ -35,7 +35,7 @@
                             <td>
                                 <span class="text-stone-100">{{ ride.location_name }}</span>
                                 <span class="text-stone-500 text-xs block">{{ ride.location_address | truncate(length=40) }}</span>
-                            </td>
+                                </td>
                             <td>
                                 {% if ride.status == "completed" %}
                                 <span class="badge badge-green">Completed</span>
@@ -48,7 +48,7 @@
                                 {% else %}
                                 <span class="badge badge-gray">{{ ride.status }}</span>
                                 {% endif %}
-                            </td>
+                                </td>
                             <td class="font-mono text-sm">
                                 {% if ride.fare %}
                                 ${{ ride.fare }}

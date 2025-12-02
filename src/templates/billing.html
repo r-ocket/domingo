@@ -11,20 +11,20 @@
                 <div>
                     <h1 class="page-title">Billing</h1>
                     <p class="page-subtitle">Manage your subscription and view usage</p>
-                </div>
+            </div>
             </header>
-
-            {% if subscription %}
+                    
+                    {% if subscription %}
             <!-- Current Plan -->
             <div class="card mb-6">
                 <div class="flex items-start justify-between">
-                    <div>
+                        <div>
                         <h2 class="text-lg font-display font-semibold text-stone-100 mb-1">Current Plan</h2>
                         <p class="text-2xl font-display font-bold text-primary-400 mb-2">
                             {% if subscription.plan == "monthly" %}$19/month{% else %}$190/year{% endif %}
                         </p>
                         <div class="flex items-center gap-2">
-                            {% if subscription.status == "active" %}
+                                {% if subscription.status == "active" %}
                             <span class="badge badge-green">Active</span>
                             {% elif subscription.status == "trialing" %}
                             <span class="badge badge-blue">Trial</span>
@@ -54,8 +54,8 @@
                         <p class="stat-label">Voice Calls</p>
                     </div>
                     <span class="stat-icon bg-purple-500/20">📞</span>
-                </div>
-                
+                    </div>
+                    
                 <div class="stat-card">
                     <div>
                         <p class="stat-value">{{ usage.minutes | default(value=0) }}</p>
@@ -63,7 +63,7 @@
                     </div>
                     <span class="stat-icon bg-sky-500/20">⏱</span>
                 </div>
-                
+
                 <div class="stat-card">
                     <div>
                         <p class="stat-value">{{ usage.rides | default(value=0) }}</p>
@@ -79,7 +79,7 @@
                 <h2 class="text-2xl font-display font-semibold text-stone-100 mb-2">Choose your plan</h2>
                 <p class="text-stone-400">Start with a 14-day free trial. Cancel anytime.</p>
             </div>
-            
+                    
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
                 <!-- Monthly Plan -->
                 <div class="card">
@@ -90,28 +90,28 @@
                     <ul class="space-y-3 mb-6 text-sm text-stone-300">
                         <li class="flex items-center gap-2">
                             <span class="text-emerald-400">✓</span> Unlimited voice calls
-                        </li>
+                                </li>
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> Medication reminders
-                        </li>
+                                    <span class="text-emerald-400">✓</span> Medication reminders
+                                </li>
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> Ride booking
-                        </li>
+                                    <span class="text-emerald-400">✓</span> Ride booking
+                                </li>
                         <li class="flex items-center gap-2">
                             <span class="text-emerald-400">✓</span> Emergency contacts
-                        </li>
+                                </li>
                         <li class="flex items-center gap-2">
                             <span class="text-emerald-400">✓</span> Call logs & transcripts
-                        </li>
-                    </ul>
+                                </li>
+                            </ul>
                     
                     <form hx-post="/billing/checkout" hx-swap="none"
                           @htmx:after-request="if(event.detail.xhr.response) window.location.href = JSON.parse(event.detail.xhr.response).url">
                         <input type="hidden" name="plan" value="monthly">
                         <button type="submit" class="btn btn-primary w-full">Start Free Trial</button>
-                    </form>
+                            </form>
                 </div>
-                
+
                 <!-- Annual Plan -->
                 <div class="card border-primary-500/50">
                     <div class="flex items-center gap-2 mb-2">

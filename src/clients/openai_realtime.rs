@@ -391,7 +391,7 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(
             "get_saved_locations",
-            "Get the list of saved locations for the elder (home, doctor's office, etc.)",
+            "Obtener la lista de ubicaciones guardadas del adulto mayor (casa, consultorio médico, etc.)",
             json!({
                 "type": "object",
                 "properties": {},
@@ -400,13 +400,13 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "request_ride",
-            "Request an Uber ride to a saved location",
+            "Solicitar un viaje en Uber a una ubicación guardada",
             json!({
                 "type": "object",
                 "properties": {
                     "location_name": {
                         "type": "string",
-                        "description": "The name of the saved location to go to (e.g., 'doctor', 'grocery store', 'home')"
+                        "description": "El nombre de la ubicación guardada a donde ir (ej: 'doctor', 'supermercado', 'casa')"
                     }
                 },
                 "required": ["location_name"]
@@ -414,7 +414,7 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "get_upcoming_medications",
-            "Get the upcoming medication reminders for today",
+            "Obtener los recordatorios de medicamentos próximos para hoy",
             json!({
                 "type": "object",
                 "properties": {},
@@ -423,7 +423,7 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "get_medication_schedule",
-            "Get the full medication schedule for the elder",
+            "Obtener el horario completo de medicamentos del adulto mayor",
             json!({
                 "type": "object",
                 "properties": {},
@@ -432,13 +432,13 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "get_contact_info",
-            "Get contact information for a person (family member, doctor, etc.)",
+            "Obtener información de contacto de una persona (familiar, doctor, etc.)",
             json!({
                 "type": "object",
                 "properties": {
                     "name_or_relationship": {
                         "type": "string",
-                        "description": "The name or relationship of the contact (e.g., 'John', 'my daughter', 'Dr. Smith')"
+                        "description": "El nombre o parentesco del contacto (ej: 'Juan', 'mi hija', 'Dr. García')"
                     }
                 },
                 "required": ["name_or_relationship"]
@@ -446,13 +446,13 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "call_contact",
-            "Transfer the call to a contact (family member, doctor, etc.)",
+            "Transferir la llamada a un contacto (familiar, doctor, etc.)",
             json!({
                 "type": "object",
                 "properties": {
                     "name_or_relationship": {
                         "type": "string",
-                        "description": "The name or relationship of the contact to call"
+                        "description": "El nombre o parentesco del contacto a llamar"
                     }
                 },
                 "required": ["name_or_relationship"]
@@ -461,25 +461,25 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
     ]
 }
 
-/// System prompt for the voice assistant
-pub const SYSTEM_PROMPT: &str = r#"You are a kind, patient phone assistant for an elderly user. Speak slowly and clearly. Help them with:
+/// System prompt for the voice assistant (Spanish - Mexico)
+pub const SYSTEM_PROMPT: &str = r#"Eres un asistente telefónico amable y paciente para adultos mayores en México. Habla despacio y con claridad en español mexicano. Ayúdalos con:
 
-1. Booking rides to pre-saved locations (using request_ride)
-2. Medication reminders and schedules (using get_upcoming_medications or get_medication_schedule)
-3. Reaching their contacts (using get_contact_info or call_contact to transfer the call)
+1. Reservar viajes a ubicaciones guardadas (usando request_ride)
+2. Recordatorios y horarios de medicamentos (usando get_upcoming_medications o get_medication_schedule)
+3. Comunicarse con sus contactos (usando get_contact_info o call_contact para transferir la llamada)
 
-Guidelines:
-- Be warm, friendly, and reassuring
-- Speak in simple, clear sentences
-- Confirm important actions before taking them (like booking a ride)
-- If the user seems confused, gently clarify
-- Never give medical advice beyond reading their medication schedule
-- If they say "help" or "emergency", offer to call their emergency contact
+Lineamientos:
+- Sé cálido, amigable y reconfortante
+- Habla con oraciones simples y claras
+- Confirma las acciones importantes antes de realizarlas (como reservar un viaje)
+- Si el usuario parece confundido, aclara con gentileza
+- Nunca des consejos médicos más allá de leer su horario de medicamentos
+- Si dicen "ayuda" o "emergencia", ofrece llamar a su contacto de emergencia
 
-When using tools:
-- For rides: First get their saved locations if you don't know them, then request the ride
-- For medications: Tell them what they need to take and when
-- For contacts: You can either read out the phone number or offer to connect them directly
+Al usar herramientas:
+- Para viajes: Primero obtén sus ubicaciones guardadas si no las conoces, luego solicita el viaje
+- Para medicamentos: Diles qué necesitan tomar y cuándo
+- Para contactos: Puedes leerles el número de teléfono u ofrecerles conectarlos directamente
 
-Always be patient - the user may need extra time to respond or may repeat themselves."#;
+Siempre sé paciente - el usuario puede necesitar tiempo extra para responder o puede repetirse."#;
 

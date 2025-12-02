@@ -1,7 +1,7 @@
 {% extends "base.html" %}
 
 {% block content %}
-<div class="app-shell">
+<div class="app-shell" x-data="{ showCreateModal: false }">
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
@@ -9,78 +9,160 @@
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Caregivers</h1>
-                    <p class="page-subtitle">Manage all caregiver accounts</p>
+                    <h1 class="page-title">Cuidadores</h1>
+                    <p class="page-subtitle">Administrar todas las cuentas de cuidadores</p>
+                </div>
+                <div class="page-actions">
+                    <button @click="showCreateModal = true" class="btn btn-primary">
+                        + Nuevo Cuidador
+                    </button>
                 </div>
             </header>
 
             <!-- Caregivers Table -->
-            <div class="data-table-wrapper">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Name</th>
-                            <th>Email</th>
-                            <th>Elder</th>
-                            <th>Role</th>
-                            <th>Status</th>
-                            <th>Joined</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        {% for caregiver in caregivers %}
-                        <tr>
-                            <td class="font-medium text-stone-100">{{ caregiver.name }}</td>
-                            <td class="text-mono text-sm">{{ caregiver.email }}</td>
-                            <td>
-                                {% if caregiver.elder_name %}
-                                <span class="text-stone-100">{{ caregiver.elder_name }}</span>
-                                {% else %}
-                                <span class="text-stone-500">Not set up</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if caregiver.role == "admin" %}
-                                <span class="badge badge-purple">Admin</span>
-                                {% else %}
-                                <span class="badge badge-gray">Caregiver</span>
-                                {% endif %}
-                            </td>
-                            <td>
-                                {% if caregiver.subscription_status == "active" %}
-                                <span class="badge badge-green">Active</span>
-                                {% elif caregiver.subscription_status == "trialing" %}
-                                <span class="badge badge-blue">Trial</span>
-                                {% else %}
-                                <span class="badge badge-yellow">{{ caregiver.subscription_status | default(value="Free") }}</span>
-                                {% endif %}
-                            </td>
-                            <td class="text-stone-400 text-sm">
-                                {{ caregiver.created_at | date(format="%b %d, %Y") }}
-                            </td>
-                        </tr>
-                        {% endfor %}
-                    </tbody>
-                </table>
-                {% if caregivers is undefined or caregivers | length == 0 %}
-                <div class="data-table-empty">
-                    No caregivers found.
-                </div>
-                {% endif %}
+            <div class="data-table-wrapper" id="caregivers-table"
+                 hx-get="/api/admin/caregivers" 
+                 hx-trigger="load, caregiversUpdated from:body"
+                 hx-swap="innerHTML">
+                <div class="text-center py-8 text-stone-500">Cargando...</div>
             </div>
 
-            {% if pagination %}
-            <div class="pagination">
-                {% if pagination.has_prev %}
-                <a href="?page={{ pagination.page - 1 }}" class="btn btn-ghost btn-sm">← Previous</a>
-                {% endif %}
-                <span class="pagination-info">Page {{ pagination.page }} of {{ pagination.total_pages }}</span>
-                {% if pagination.has_next %}
-                <a href="?page={{ pagination.page + 1 }}" class="btn btn-ghost btn-sm">Next →</a>
-                {% endif %}
+            <!-- Create Caregiver Modal -->
+            <div class="modal" x-show="showCreateModal" x-cloak @keydown.escape.window="showCreateModal = false">
+                <div class="modal-backdrop" @click="showCreateModal = false"></div>
+                <div class="modal-content">
+                    <div class="modal-header">
+                        <h3 class="modal-title">Crear Cuidador</h3>
+                        <button @click="showCreateModal = false" class="modal-close">&times;</button>
+                    </div>
+                    <form hx-post="/debug/caregiver" 
+                          hx-target="#create-result"
+                          hx-swap="innerHTML"
+                          @htmx:after-request="if(event.detail.successful) { showCreateModal = false; htmx.trigger(document.body, 'caregiversUpdated'); }"
+                          class="space-y-4">
+                        <div id="create-result"></div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Nombre</label>
+                            <input type="text" name="name" class="form-input" placeholder="Juan García" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Correo electrónico</label>
+                            <input type="email" name="email" class="form-input" placeholder="juan@ejemplo.com" required>
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Contraseña</label>
+                            <input type="password" name="password" class="form-input" placeholder="Mínimo 8 caracteres" required minlength="8">
+                        </div>
+                        <div class="form-group">
+                            <label class="form-label">Rol</label>
+                            <select name="role" class="form-select">
+                                <option value="caregiver">Cuidador</option>
+                                <option value="admin">Administrador</option>
+                            </select>
+                        </div>
+                        <div class="modal-footer">
+                            <button type="button" @click="showCreateModal = false" class="btn btn-ghost">Cancelar</button>
+                            <button type="submit" class="btn btn-primary">Crear</button>
+                        </div>
+                    </form>
+                </div>
             </div>
-            {% endif %}
         </div>
     </main>
 </div>
+
+<template id="caregivers-table-template">
+    <table class="data-table">
+        <thead>
+            <tr>
+                <th>Nombre</th>
+                <th>Correo</th>
+                <th>Adulto Mayor</th>
+                <th>Rol</th>
+                <th>Estado</th>
+                <th>Registro</th>
+                <th>Acciones</th>
+            </tr>
+        </thead>
+        <tbody id="caregivers-body">
+        </tbody>
+    </table>
+</template>
+
+<script>
+// Transform JSON API response to HTML table
+htmx.on('htmx:beforeSwap', function(evt) {
+    if (evt.detail.target.id === 'caregivers-table') {
+        try {
+            const data = JSON.parse(evt.detail.serverResponse);
+            if (data.items) {
+                let html = `
+                    <table class="data-table">
+                        <thead>
+                            <tr>
+                                <th>Nombre</th>
+                                <th>Correo</th>
+                                <th>Rol</th>
+                                <th>Registro</th>
+                                <th>Acciones</th>
+                            </tr>
+                        </thead>
+                        <tbody>
+                `;
+                
+                if (data.items.length === 0) {
+                    html += `<tr><td colspan="5" class="text-center text-stone-500 py-8">No hay cuidadores registrados</td></tr>`;
+                } else {
+                    data.items.forEach(c => {
+                        const roleClass = c.role === 'admin' ? 'badge-purple' : 'badge-gray';
+                        const roleText = c.role === 'admin' ? 'Admin' : 'Cuidador';
+                        const date = new Date(c.created_at).toLocaleDateString('es-MX', { year: 'numeric', month: 'short', day: 'numeric' });
+                        
+                        html += `
+                            <tr>
+                                <td class="font-medium text-stone-100">${c.name}</td>
+                                <td class="text-mono text-sm">${c.email}</td>
+                                <td><span class="badge ${roleClass}">${roleText}</span></td>
+                                <td class="text-stone-400 text-sm">${date}</td>
+                                <td>
+                                    <button class="btn btn-ghost btn-sm" onclick="alert('ID: ${c.id}')">Ver ID</button>
+                                </td>
+                            </tr>
+                        `;
+                    });
+                }
+                
+                html += `</tbody></table>`;
+                
+                if (data.total_pages > 1) {
+                    html += `
+                        <div class="pagination">
+                            ${data.page > 1 ? `<a href="?page=${data.page - 1}" class="btn btn-ghost btn-sm">← Anterior</a>` : ''}
+                            <span class="pagination-info">Página ${data.page} de ${data.total_pages}</span>
+                            ${data.page < data.total_pages ? `<a href="?page=${data.page + 1}" class="btn btn-ghost btn-sm">Siguiente →</a>` : ''}
+                        </div>
+                    `;
+                }
+                
+                evt.detail.serverResponse = html;
+            }
+        } catch (e) {
+            // Not JSON, leave as is
+        }
+    }
+    
+    // Format create result
+    if (evt.detail.target.id === 'create-result') {
+        try {
+            const data = JSON.parse(evt.detail.serverResponse);
+            if (data.error) {
+                evt.detail.serverResponse = `<div class="p-3 bg-red-500/10 border border-red-500/20 rounded text-red-400 text-sm">${data.error}</div>`;
+            } else if (data.id) {
+                evt.detail.serverResponse = `<div class="p-3 bg-emerald-500/10 border border-emerald-500/20 rounded text-emerald-400 text-sm">✓ Cuidador creado: ${data.email}</div>`;
+            }
+        } catch (e) {}
+    }
+});
+</script>
 {% endblock %}

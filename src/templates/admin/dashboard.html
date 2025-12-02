@@ -9,41 +9,41 @@
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Admin Dashboard</h1>
-                    <p class="page-subtitle">System overview and statistics</p>
-                </div>
+                    <h1 class="page-title">Panel de Administrador</h1>
+                    <p class="page-subtitle">Resumen del sistema y estadísticas</p>
+            </div>
             </header>
 
             <!-- Stats Grid -->
             <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4 mb-6">
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <p class="stat-value">{{ total_caregivers }}</p>
-                        <p class="stat-label">Caregivers</p>
+                        <p class="stat-label">Cuidadores</p>
                     </div>
                     <span class="stat-icon bg-sky-500/20">👤</span>
                 </div>
 
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <p class="stat-value">{{ total_elders }}</p>
-                        <p class="stat-label">Elders</p>
+                        <p class="stat-label">Adultos Mayores</p>
                     </div>
                     <span class="stat-icon bg-emerald-500/20">👴</span>
                 </div>
 
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <p class="stat-value">{{ total_calls_today }}</p>
-                        <p class="stat-label">Calls Today</p>
+                        <p class="stat-label">Llamadas Hoy</p>
                     </div>
                     <span class="stat-icon bg-purple-500/20">📞</span>
                 </div>
 
                 <div class="stat-card">
-                    <div>
+                        <div>
                         <p class="stat-value">{{ active_subscriptions }}</p>
-                        <p class="stat-label">Active Subscriptions</p>
+                        <p class="stat-label">Suscripciones Activas</p>
                     </div>
                     <span class="stat-icon bg-primary-500/20">💳</span>
                 </div>
@@ -54,8 +54,8 @@
                 <!-- Recent Activity -->
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">Recent Calls</h2>
-                        <a href="/admin/logs" class="btn btn-ghost btn-sm">View All</a>
+                        <h2 class="card-title">Llamadas Recientes</h2>
+                        <a href="/admin/logs" class="btn btn-ghost btn-sm">Ver Todas</a>
                     </div>
                     <div class="space-y-3">
                         {% for call in recent_calls %}
@@ -65,16 +65,16 @@
                                 <p class="text-xs text-stone-500">{{ call.started_at | date(format="%b %d, %H:%M") }}</p>
                             </div>
                             {% if call.status == "completed" %}
-                            <span class="badge badge-green">Completed</span>
+                            <span class="badge badge-green">Completada</span>
                             {% elif call.status == "transferred" %}
-                            <span class="badge badge-yellow">Transferred</span>
+                            <span class="badge badge-yellow">Transferida</span>
                             {% else %}
                             <span class="badge badge-gray">{{ call.status }}</span>
                             {% endif %}
                         </div>
                         {% endfor %}
                         {% if recent_calls is undefined or recent_calls | length == 0 %}
-                        <p class="text-center text-stone-500 py-4">No recent calls</p>
+                        <p class="text-center text-stone-500 py-4">Sin llamadas recientes</p>
                         {% endif %}
                     </div>
                 </div>
@@ -82,38 +82,63 @@
                 <!-- System Status -->
                 <div class="card">
                     <div class="card-header">
-                        <h2 class="card-title">System Status</h2>
-                    </div>
+                        <h2 class="card-title">Estado del Sistema</h2>
+                            </div>
                     <div class="space-y-3">
                         <div class="flex items-center justify-between py-2">
                             <span class="text-sm text-stone-300">Twilio API</span>
                             <span class="flex items-center gap-2">
                                 <span class="status-dot status-dot-green"></span>
-                                <span class="text-sm text-stone-400">Connected</span>
+                                <span class="text-sm text-stone-400">Conectado</span>
                             </span>
                         </div>
                         <div class="flex items-center justify-between py-2">
                             <span class="text-sm text-stone-300">OpenAI Realtime</span>
                             <span class="flex items-center gap-2">
                                 <span class="status-dot status-dot-green"></span>
-                                <span class="text-sm text-stone-400">Connected</span>
+                                <span class="text-sm text-stone-400">Conectado</span>
                             </span>
                         </div>
                         <div class="flex items-center justify-between py-2">
                             <span class="text-sm text-stone-300">Uber API</span>
                             <span class="flex items-center gap-2">
                                 <span class="status-dot status-dot-green"></span>
-                                <span class="text-sm text-stone-400">Connected</span>
+                                <span class="text-sm text-stone-400">Conectado</span>
                             </span>
                         </div>
                         <div class="flex items-center justify-between py-2">
                             <span class="text-sm text-stone-300">Stripe API</span>
                             <span class="flex items-center gap-2">
                                 <span class="status-dot status-dot-green"></span>
-                                <span class="text-sm text-stone-400">Connected</span>
+                                <span class="text-sm text-stone-400">Conectado</span>
                             </span>
                         </div>
                     </div>
+                </div>
+            </div>
+
+            <!-- Quick Links -->
+            <div class="card mt-6">
+                <div class="card-header">
+                    <h2 class="card-title">Acciones Rápidas</h2>
+                </div>
+                <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+                    <a href="/admin/caregivers" class="action-card">
+                        <span class="action-card-icon">👤</span>
+                        <span class="action-card-text">Gestionar Cuidadores</span>
+                    </a>
+                    <a href="/admin/elders" class="action-card">
+                        <span class="action-card-icon">👴</span>
+                        <span class="action-card-text">Gestionar Adultos Mayores</span>
+                    </a>
+                    <a href="/admin/logs" class="action-card">
+                        <span class="action-card-icon">📋</span>
+                        <span class="action-card-text">Ver Registros</span>
+                    </a>
+                    <a href="/admin/debug" class="action-card">
+                        <span class="action-card-icon">🔧</span>
+                        <span class="action-card-text">Herramientas Debug</span>
+                    </a>
                 </div>
             </div>
         </div>

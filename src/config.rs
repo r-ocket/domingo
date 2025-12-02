@@ -32,6 +32,10 @@ pub struct Config {
     
     // Session
     pub session_secret: String,
+    
+    // Seed admin (optional - creates admin on startup if no users exist)
+    pub seed_admin_email: Option<String>,
+    pub seed_admin_password: Option<String>,
 }
 
 impl Config {
@@ -69,6 +73,10 @@ impl Config {
             // Session
             session_secret: env::var("SESSION_SECRET")
                 .unwrap_or_else(|_| "development_secret_change_in_production".to_string()),
+            
+            // Seed admin (creates admin on startup if DB is empty)
+            seed_admin_email: env::var("SEED_ADMIN_EMAIL").ok(),
+            seed_admin_password: env::var("SEED_ADMIN_PASSWORD").ok(),
         })
     }
 }

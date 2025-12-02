@@ -143,39 +143,39 @@ impl TwilioClient {
         )
     }
     
-    /// Generate TwiML for a medication reminder call
+    /// Generate TwiML for a medication reminder call (Spanish - Mexico)
     pub fn generate_reminder_twiml(&self, medication_name: &str, dosage: &str, reminder_id: &str) -> String {
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="Polly.Joanna">Hello! This is your medication reminder. It's time to take your {} - {}. Please press 1 after you have taken your medication.</Say>
+    <Say voice="Polly.Mia" language="es-MX">¡Hola! Este es tu recordatorio de medicamento. Es hora de tomar tu {} - {}. Por favor presiona 1 después de tomar tu medicamento.</Say>
     <Gather numDigits="1" action="/api/twilio/reminder-confirm?reminder_id={}" method="POST">
-        <Say voice="Polly.Joanna">Press 1 to confirm you have taken your medication.</Say>
+        <Say voice="Polly.Mia" language="es-MX">Presiona 1 para confirmar que tomaste tu medicamento.</Say>
     </Gather>
-    <Say voice="Polly.Joanna">We didn't receive your response. Please remember to take your medication. Goodbye.</Say>
+    <Say voice="Polly.Mia" language="es-MX">No recibimos tu respuesta. Por favor recuerda tomar tu medicamento. Hasta luego.</Say>
 </Response>"#,
             medication_name, dosage, reminder_id
         )
     }
     
-    /// Generate TwiML for dialing a contact
+    /// Generate TwiML for dialing a contact (Spanish - Mexico)
     pub fn generate_dial_twiml(&self, phone_number: &str) -> String {
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="Polly.Joanna">Connecting you now.</Say>
+    <Say voice="Polly.Mia" language="es-MX">Conectándote ahora.</Say>
     <Dial>{}</Dial>
 </Response>"#,
             phone_number
         )
     }
     
-    /// Generate TwiML for an error/fallback message
+    /// Generate TwiML for an error/fallback message (Spanish - Mexico)
     pub fn generate_error_twiml(&self, message: &str) -> String {
         format!(
             r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="Polly.Joanna">{}</Say>
+    <Say voice="Polly.Mia" language="es-MX">{}</Say>
     <Hangup/>
 </Response>"#,
             message
