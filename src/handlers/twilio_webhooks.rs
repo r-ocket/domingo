@@ -181,3 +181,84 @@ pub struct ReminderConfirmForm {
     pub digits: Option<String>,
 }
 
+/// Handle outbound call to elder - greet them and connect to voice assistant
+#[derive(Debug, Deserialize)]
+pub struct OutboundVoiceParams {
+    pub elder_id: String,
+}
+
+#[tracing::instrument(skip(state), fields(elder_id = %params.elder_id))]
+pub async fn outbound_voice(
+    State(state): State<AppState>,
+    Query(params): Query<OutboundVoiceParams>,
+    Form(payload): Form<IncomingCallPayload>,
+) -> impl IntoResponse {
+    tracing::info!("Processing outbound voice call");
+    
+    // Parse elder ID
+    let elder_id = match uuid::Uuid::parse_str(&params.elder_id) {
+        Ok(id) => id,
+        Err(_) => {
+            tracing::error!("Invalid elder_id: {}", params.elder_id);
+            return (
+                StatusCode::OK,
+                [("Content-Type", "application/xml")],
+                state.twilio.generate_error_twiml("Lo siento, hubo un error en el sistema."),
+            );
+        }
+    };
+    
+    // Look up elder
+    match ElderService::find_elder_by_id(&state.db, elder_id).await {
+        Ok(elder) => {
+            // Create call session for this outbound call
+            if let Err(e) = CallService::start_session(
+                &state.db,
+                elder.id,
+                &payload.call_sid,
+                &payload.to,
+            ).await {
+                tracing::error!("Failed to create call session: {}", e);
+            }
+            
+            // Generate TwiML with greeting then connect to WebSocket stream
+            let stream_url = format!(
+                "wss://{}/api/twilio/media-stream/{}",
+                state.config.base_url.replace("http://", "").replace("https://", ""),
+                payload.call_sid
+            );
+            
+            // Use the elder's name in the greeting if available
+            let greeting = format!(
+                "Hola {}. Soy Domingo, tu asistente de voz. ¿En qué puedo ayudarte hoy?",
+                elder.name
+            );
+            
+            let twiml = format!(
+                r#"<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Say voice="Polly.Mia" language="es-MX">{}</Say>
+    <Connect>
+        <Stream url="{}" />
+    </Connect>
+</Response>"#,
+                greeting, stream_url
+            );
+            
+            (
+                StatusCode::OK,
+                [("Content-Type", "application/xml")],
+                twiml,
+            )
+        }
+        Err(_) => {
+            tracing::error!("Elder not found: {}", elder_id);
+            (
+                StatusCode::OK,
+                [("Content-Type", "application/xml")],
+                state.twilio.generate_error_twiml("Lo siento, hubo un error. Por favor intenta más tarde."),
+            )
+        }
+    }
+}
+

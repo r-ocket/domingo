@@ -22,8 +22,8 @@ pub async fn seed_admin_if_empty(pool: &PostgresPool, config: &Config) -> Domain
         (Some(e), Some(p)) => (e.clone(), p.clone()),
         _ => {
             // Use defaults for development
-            tracing::warn!("No SEED_ADMIN_EMAIL/PASSWORD set, using defaults: admin@walle.local / admin123");
-            ("admin@walle.local".to_string(), "admin123".to_string())
+            tracing::warn!("No SEED_ADMIN_EMAIL/PASSWORD set, using defaults: admin@domingo.local / admin123");
+            ("admin@domingo.local".to_string(), "admin123".to_string())
         }
     };
     

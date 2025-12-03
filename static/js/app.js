@@ -1,4 +1,4 @@
-// Walle App JavaScript
+// Asistente Domingo App JavaScript
 
 // HTMX configuration
 document.addEventListener('htmx:configRequest', (event) => {

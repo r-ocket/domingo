@@ -2,8 +2,8 @@
     <!-- Header -->
     <div class="sidebar-header">
         <a href="/" class="sidebar-brand">
-            <span class="text-2xl">🤖</span>
-            <span class="sidebar-brand-text" x-show="sidebarOpen" x-transition.opacity>Walle</span>
+            <span class="text-2xl">👴</span>
+            <span class="sidebar-brand-text" x-show="sidebarOpen" x-transition.opacity>Domingo</span>
         </a>
         <button @click="sidebarOpen = !sidebarOpen" class="sidebar-toggle">
             <svg x-show="sidebarOpen" class="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
@@ -14,6 +14,50 @@
             </svg>
         </button>
     </div>
+
+    {% if elders is defined and elders | length > 0 %}
+    <!-- Elder Switcher (Slack-style workspace switcher) -->
+    <div class="elder-switcher" x-data="{ open: false }">
+        <button @click="open = !open" class="elder-switcher-btn" type="button">
+            <div class="elder-switcher-avatar">👴</div>
+            <div x-show="sidebarOpen" x-transition.opacity class="elder-switcher-info">
+                <span class="elder-switcher-name">{{ selected_elder.name }}</span>
+                <span class="elder-switcher-relationship">{{ selected_elder.relationship }}</span>
+            </div>
+            <svg x-show="sidebarOpen" class="elder-switcher-chevron" :class="open ? 'rotate-180' : ''" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 9l-7 7-7-7" />
+            </svg>
+        </button>
+        
+        <div x-show="open" x-cloak @click.outside="open = false" class="elder-switcher-menu">
+            <div class="elder-switcher-menu-header">Cambiar Adulto Mayor</div>
+            {% for elder in elders %}
+            <button 
+                type="button"
+                class="elder-switcher-option {% if elder.id == selected_elder.id %}active{% endif %}"
+                @click="fetch('/api/caregiver/select-elder', { 
+                    method: 'POST', 
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ elder_id: '{{ elder.id }}' })
+                }).then(() => window.location.reload())"
+            >
+                <div class="elder-switcher-avatar-sm">👴</div>
+                <div class="elder-switcher-option-info">
+                    <span class="elder-switcher-option-name">{{ elder.name }}</span>
+                    <span class="elder-switcher-option-relationship">{{ elder.relationship }}</span>
+                </div>
+                {% if elder.id == selected_elder.id %}
+                <span class="elder-switcher-check">✓</span>
+                {% endif %}
+            </button>
+            {% endfor %}
+            <a href="/elder/profile?new=true" class="elder-switcher-add">
+                <span class="elder-switcher-add-icon">+</span>
+                <span>Agregar Adulto Mayor</span>
+            </a>
+        </div>
+    </div>
+    {% endif %}
 
     <!-- Navigation -->
     <nav class="sidebar-nav">
@@ -76,6 +120,10 @@
             <a href="/admin/elders" class="nav-item {% if current_path == '/admin/elders' %}active{% endif %}">
                 <span class="nav-item-icon">👴</span>
                 <span x-show="sidebarOpen" x-transition.opacity>Adultos Mayores</span>
+            </a>
+            <a href="/admin/calls" class="nav-item {% if current_path == '/admin/calls' %}active{% endif %}">
+                <span class="nav-item-icon">📞</span>
+                <span x-show="sidebarOpen" x-transition.opacity>Centro de Llamadas</span>
             </a>
             <a href="/admin/logs" class="nav-item {% if current_path == '/admin/logs' %}active{% endif %}">
                 <span class="nav-item-icon">📋</span>

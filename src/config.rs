@@ -51,7 +51,7 @@ impl Config {
             
             // Database
             database_url: env::var("DATABASE_URL")
-                .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/walle".to_string()),
+                .unwrap_or_else(|_| "postgres://postgres:postgres@localhost/asistente_domingo".to_string()),
             
             // Twilio
             twilio_account_sid: env::var("TWILIO_ACCOUNT_SID").unwrap_or_default(),

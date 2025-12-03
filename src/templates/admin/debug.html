@@ -187,6 +187,20 @@
                 </div>
             </div>
 
+            <!-- Call Center Link -->
+            <div class="card mt-6">
+                <div class="card-header">
+                    <h2 class="card-title">📞 Centro de Llamadas</h2>
+                </div>
+                <p class="text-stone-400 text-sm mb-4">
+                    Para iniciar llamadas y ver el monitoreo en vivo con transcripciones y herramientas, usa el Centro de Llamadas.
+                </p>
+                <a href="/admin/calls" class="btn btn-primary inline-flex items-center gap-2">
+                    <span>📞</span>
+                    <span>Ir al Centro de Llamadas</span>
+                </a>
+            </div>
+
             <!-- API Endpoints Reference -->
             <div class="card mt-6">
                 <div class="card-header">
@@ -202,6 +216,11 @@
                         <span class="badge badge-green">POST</span>
                         <code class="text-mono text-sm text-stone-300">/debug/elder</code>
                         <span class="text-stone-500 text-sm">Crear un perfil de adulto mayor</span>
+                    </div>
+                    <div class="flex items-center gap-4 py-2 border-b border-surface-700/50">
+                        <span class="badge badge-green">POST</span>
+                        <code class="text-mono text-sm text-stone-300">/debug/call-elder</code>
+                        <span class="text-stone-500 text-sm">Iniciar llamada a adulto mayor</span>
                     </div>
                     <div class="flex items-center gap-4 py-2">
                         <span class="badge badge-blue">GET</span>
@@ -271,7 +290,7 @@ function debugTools() {
                 this.caregiverResult = await res.json();
                 if (res.ok) {
                     this.caregiverForm = { name: '', email: '', password: '', role: 'caregiver' };
-                    await this.loadCaregivers(); // Refresh the list
+                    await this.loadCaregivers();
                 }
             } catch (e) {
                 this.caregiverResult = { error: e.message };

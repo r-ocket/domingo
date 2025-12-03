@@ -389,6 +389,82 @@
   }
 
   /* ==========================================
+     ELDER SWITCHER (Slack-style)
+     ========================================== */
+
+  .elder-switcher {
+    @apply relative px-3 py-2;
+  }
+
+  .elder-switcher-btn {
+    @apply w-full flex items-center gap-2 px-2 py-2 rounded bg-surface-800/50 hover:bg-surface-800 transition-colors cursor-pointer;
+  }
+
+  .elder-switcher-avatar {
+    @apply w-8 h-8 rounded bg-primary-500/20 flex items-center justify-center text-lg flex-shrink-0;
+  }
+
+  .elder-switcher-info {
+    @apply flex-1 text-left overflow-hidden;
+  }
+
+  .elder-switcher-name {
+    @apply block text-sm font-medium text-stone-100 truncate;
+  }
+
+  .elder-switcher-relationship {
+    @apply block text-xs text-stone-500 capitalize;
+  }
+
+  .elder-switcher-chevron {
+    @apply w-4 h-4 text-stone-400 flex-shrink-0 transition-transform duration-200;
+  }
+
+  .elder-switcher-menu {
+    @apply absolute left-3 right-3 top-full mt-1 bg-surface-800 border border-surface-700 rounded-sm shadow-xl z-50 overflow-hidden;
+  }
+
+  .elder-switcher-menu-header {
+    @apply px-3 py-2 text-xs font-semibold text-stone-500 uppercase tracking-wider border-b border-surface-700;
+  }
+
+  .elder-switcher-option {
+    @apply w-full flex items-center gap-2 px-3 py-2 hover:bg-surface-700 transition-colors cursor-pointer text-left;
+  }
+
+  .elder-switcher-option.active {
+    @apply bg-primary-500/10;
+  }
+
+  .elder-switcher-avatar-sm {
+    @apply w-6 h-6 rounded bg-surface-600 flex items-center justify-center text-sm flex-shrink-0;
+  }
+
+  .elder-switcher-option-info {
+    @apply flex-1 overflow-hidden;
+  }
+
+  .elder-switcher-option-name {
+    @apply block text-sm text-stone-100 truncate;
+  }
+
+  .elder-switcher-option-relationship {
+    @apply block text-xs text-stone-500 capitalize;
+  }
+
+  .elder-switcher-check {
+    @apply text-primary-400 text-sm flex-shrink-0;
+  }
+
+  .elder-switcher-add {
+    @apply flex items-center gap-2 px-3 py-2 border-t border-surface-700 text-sm text-stone-400 hover:text-stone-100 hover:bg-surface-700 transition-colors;
+  }
+
+  .elder-switcher-add-icon {
+    @apply w-6 h-6 rounded border border-dashed border-stone-600 flex items-center justify-center text-stone-500;
+  }
+
+  /* ==========================================
      EMPTY STATES
      ========================================== */
 

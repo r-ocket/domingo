@@ -19,7 +19,7 @@ mod clients;
 mod handlers;
 mod middleware;
 
-use services::ReminderScheduler;
+use services::{ReminderScheduler, CallStateStore, SharedCallStateStore};
 
 pub use config::Config;
 use repositories::postgres::PostgresPool;
@@ -34,6 +34,7 @@ pub struct AppState {
     pub uber: Arc<clients::UberClient>,
     pub stripe: Arc<clients::StripeClient>,
     pub templates: Arc<tera::Tera>,
+    pub call_state: SharedCallStateStore,
 }
 
 impl AppState {
@@ -69,6 +70,9 @@ impl AppState {
                 .expect("Failed to load templates")
         );
         
+        // Initialize call state store for live monitoring
+        let call_state = Arc::new(CallStateStore::new());
+        
         Ok(Self {
             config: Arc::new(config),
             db,
@@ -77,6 +81,7 @@ impl AppState {
             uber,
             stripe,
             templates,
+            call_state,
         })
     }
 }
@@ -87,7 +92,7 @@ async fn main() -> anyhow::Result<()> {
     tracing_subscriber::registry()
         .with(
             tracing_subscriber::EnvFilter::try_from_default_env()
-                .unwrap_or_else(|_| "walle=debug,tower_http=debug".into()),
+                .unwrap_or_else(|_| "asistente_domingo=debug,tower_http=debug".into()),
         )
         .with(tracing_subscriber::fmt::layer())
         .init();

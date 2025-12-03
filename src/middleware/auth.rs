@@ -12,7 +12,7 @@ use crate::services::decode_session;
 use crate::AppState;
 
 /// Session cookie name
-pub const SESSION_COOKIE: &str = "walle_session";
+pub const SESSION_COOKIE: &str = "domingo_session";
 
 /// Authenticated user - extracted from session cookie
 #[derive(Debug, Clone)]

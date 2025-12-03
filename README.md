@@ -1,10 +1,10 @@
-# Walle 🤖
+# Asistente Domingo 👴
 
-A voice AI assistant for elderly care. Walle enables seniors to request rides, receive medication reminders, and reach emergency contacts—all through natural phone conversations.
+Un asistente de voz con IA para el cuidado de adultos mayores. Asistente Domingo permite a los adultos mayores solicitar viajes, recibir recordatorios de medicamentos y contactar a familiares—todo a través de conversaciones telefónicas naturales.
 
 ## Overview
 
-Walle bridges the gap between elderly family members and modern technology. Instead of requiring smartphone apps, elders simply call a phone number and speak naturally. The AI assistant handles their requests and keeps caregivers informed.
+Asistente Domingo conecta a los adultos mayores con la tecnología moderna. En lugar de requerir apps de smartphone, los adultos mayores simplemente llaman a un número telefónico y hablan naturalmente. El asistente de IA maneja sus solicitudes y mantiene informados a los cuidadores.
 
 ### For Elders (Phone Interface)
 
@@ -53,7 +53,7 @@ System administrators have full visibility:
 │                             │ WebSocket (audio stream)          │
 │                             ▼                                   │
 │  ┌──────────────────────────────────────────────────────────┐   │
-│  │                      Walle Server                        │   │
+│  │                   Asistente Domingo                      │   │
 │  │  ┌─────────────┐  ┌─────────────┐  ┌─────────────────┐   │   │
 │  │  │  Handlers   │  │  Services   │  │   Repositories  │   │   │
 │  │  │ (HTTP/WS)   │──│  (Business  │──│   (Postgres)    │   │   │
@@ -161,7 +161,7 @@ PORT=8080
 BASE_URL=https://your-domain.com  # Public URL for webhooks
 
 # Database
-DATABASE_URL=postgres://user:password@localhost:5432/walle
+DATABASE_URL=postgres://user:password@localhost:5432/asistente_domingo
 
 # Session
 SESSION_SECRET=your-32-char-random-secret-here
@@ -193,31 +193,31 @@ The fastest way to get running locally:
 
 ```bash
 # 1. Create database
-createdb walle
+createdb asistente_domingo
 
 # 2. Run (uses defaults, no .env needed for basic dev)
 cargo run
 
 # 3. Open http://localhost:3000/login
-#    Default admin: admin@walle.local / admin123
+#    Default admin: admin@domingo.local / admin123
 
 # 4. Go to Admin > Cuidadores to create users
 # 5. Go to Admin > Adultos Mayores to create elder profiles
 ```
 
 On first run with an empty database, an admin user is automatically created:
-- **Default**: `admin@walle.local` / `admin123`
+- **Default**: `admin@domingo.local` / `admin123`
 - **Custom**: Set `SEED_ADMIN_EMAIL` and `SEED_ADMIN_PASSWORD` env vars
 
 ### Full Setup & Run
 
 ```bash
 # 1. Clone the repository
-git clone https://github.com/yourorg/walle.git
-cd walle
+git clone https://github.com/yourorg/asistente-domingo.git
+cd asistente-domingo
 
 # 2. Create the database
-createdb walle
+createdb asistente_domingo
 
 # 3. Install Node dependencies (for Tailwind)
 npm install
