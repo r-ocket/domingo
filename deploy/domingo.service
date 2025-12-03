@@ -1,0 +1,48 @@
+# Systemd service file for Asistente Domingo
+# Place this in /etc/systemd/system/domingo.service
+#
+# After placing:
+#   sudo systemctl daemon-reload
+#   sudo systemctl enable domingo
+#   sudo systemctl start domingo
+
+[Unit]
+Description=Asistente Domingo - Voice AI Assistant for Elderly Care
+Documentation=https://github.com/yourorg/asistente-domingo
+After=network.target postgresql.service
+Wants=postgresql.service
+
+[Service]
+Type=simple
+User=ubuntu
+Group=ubuntu
+WorkingDirectory=/opt/domingo
+
+# Environment file with secrets
+EnvironmentFile=/opt/domingo/.env
+
+# Run the binary
+ExecStart=/opt/domingo/asistente-domingo
+
+# Restart policy
+Restart=always
+RestartSec=5
+
+# Security hardening
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+ReadWritePaths=/opt/domingo
+PrivateTmp=true
+
+# Resource limits
+LimitNOFILE=65535
+
+# Logging
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=domingo
+
+[Install]
+WantedBy=multi-user.target
+
