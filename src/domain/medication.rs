@@ -1,6 +1,6 @@
 //! Medication domain model
 
-use chrono::{DateTime, Datelike, NaiveTime, Utc, Weekday};
+use chrono::{DateTime, NaiveTime, Utc};
 use serde::{Deserialize, Serialize};
 use uuid::Uuid;
 
@@ -12,9 +12,7 @@ pub const DAY_THURSDAY: i32 = 8;
 pub const DAY_FRIDAY: i32 = 16;
 pub const DAY_SATURDAY: i32 = 32;
 pub const DAY_SUNDAY: i32 = 64;
-pub const DAYS_ALL: i32 = 127;      // All days
-pub const DAYS_WEEKDAYS: i32 = 31;  // Mon-Fri
-pub const DAYS_WEEKENDS: i32 = 96;  // Sat-Sun
+pub const DAYS_ALL: i32 = 127;  // All days
 
 /// Medication entry for an elder
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -68,25 +66,6 @@ pub struct MedicationSchedule {
 }
 
 impl MedicationSchedule {
-    /// Check if this schedule applies to a given weekday
-    pub fn applies_to_day(&self, weekday: Weekday) -> bool {
-        let day_bit = match weekday {
-            Weekday::Mon => DAY_MONDAY,
-            Weekday::Tue => DAY_TUESDAY,
-            Weekday::Wed => DAY_WEDNESDAY,
-            Weekday::Thu => DAY_THURSDAY,
-            Weekday::Fri => DAY_FRIDAY,
-            Weekday::Sat => DAY_SATURDAY,
-            Weekday::Sun => DAY_SUNDAY,
-        };
-        (self.days_of_week & day_bit) != 0
-    }
-    
-    /// Check if this schedule applies today
-    pub fn applies_today(&self) -> bool {
-        self.applies_to_day(Utc::now().weekday())
-    }
-    
     /// Get human-readable days description (Spanish)
     pub fn days_description(&self) -> String {
         match self.days_of_week {
@@ -126,16 +105,5 @@ pub struct CreateScheduleRequest {
 pub struct MedicationWithSchedule {
     pub medication: Medication,
     pub schedules: Vec<MedicationSchedule>,
-}
-
-/// Upcoming medication reminder info
-#[derive(Debug, Clone, Serialize)]
-pub struct UpcomingMedication {
-    pub medication_id: Uuid,
-    pub medication_name: String,
-    pub dosage: String,
-    pub instructions: Option<String>,
-    pub scheduled_time: NaiveTime,
-    pub next_due: DateTime<Utc>,
 }
 

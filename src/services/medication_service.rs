@@ -1,11 +1,11 @@
 //! Medication management service
 
-use chrono::{Local, NaiveTime, Timelike, Utc};
+use chrono::NaiveTime;
 use uuid::Uuid;
 
 use crate::domain::{
     CreateMedicationRequest, DomainError, DomainResult, MedicationWithSchedule,
-    Pagination, Paginated, UpdateMedicationRequest, UpcomingMedication,
+    Pagination, Paginated, UpdateMedicationRequest,
 };
 use crate::repositories::postgres::{ElderRepository, MedicationRepository, PostgresPool};
 
@@ -60,49 +60,12 @@ impl MedicationService {
         Ok(med)
     }
     
-    /// Get all medications for an elder (for AI tool)
+    /// Get all medications for an elder (for AI context)
     pub async fn get_all_medications(
         pool: &PostgresPool,
         elder_id: Uuid,
     ) -> DomainResult<Vec<MedicationWithSchedule>> {
         MedicationRepository::list_all_by_elder(pool, elder_id).await
-    }
-    
-    /// Get upcoming medications for today
-    pub async fn get_upcoming_medications(
-        pool: &PostgresPool,
-        elder_id: Uuid,
-    ) -> DomainResult<Vec<UpcomingMedication>> {
-        let now = Local::now();
-        let current_time = NaiveTime::from_hms_opt(now.hour(), now.minute(), 0).unwrap();
-        
-        let all_schedules = MedicationRepository::get_all_schedules_by_elder(pool, elder_id).await?;
-        
-        let mut upcoming: Vec<UpcomingMedication> = all_schedules
-            .iter()
-            .filter(|(_, schedule)| schedule.time_of_day >= current_time)
-            .map(|(med, schedule)| {
-                let today = now.date_naive();
-                let next_due = today.and_time(schedule.time_of_day);
-                let next_due_utc = chrono::TimeZone::from_local_datetime(&Utc, &next_due)
-                    .single()
-                    .unwrap_or_else(Utc::now);
-                
-                UpcomingMedication {
-                    medication_id: med.id,
-                    medication_name: med.name.clone(),
-                    dosage: med.dosage.clone(),
-                    instructions: med.instructions.clone(),
-                    scheduled_time: schedule.time_of_day,
-                    next_due: next_due_utc,
-                }
-            })
-            .collect();
-        
-        // Sort by scheduled time
-        upcoming.sort_by(|a, b| a.scheduled_time.cmp(&b.scheduled_time));
-        
-        Ok(upcoming)
     }
     
     /// List medications for an elder

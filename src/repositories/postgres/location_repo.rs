@@ -162,30 +162,6 @@ impl LocationRepository {
         Ok(rows.iter().map(row_to_location).collect())
     }
     
-    /// List locations by type
-    pub async fn list_by_type(
-        pool: &PostgresPool,
-        elder_id: Uuid,
-        location_type: LocationType,
-    ) -> DomainResult<Vec<Location>> {
-        let client = pool.get().await?;
-        let type_str = location_type.to_string();
-        
-        let rows = client
-            .query(
-                r#"
-                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
-                FROM locations
-                WHERE elder_id = $1 AND location_type = $2
-                ORDER BY is_home DESC, name
-                "#,
-                &[&elder_id, &type_str],
-            )
-            .await?;
-        
-        Ok(rows.iter().map(row_to_location).collect())
-    }
-    
     /// Update location
     pub async fn update(
         pool: &PostgresPool,
