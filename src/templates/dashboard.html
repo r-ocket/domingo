@@ -84,23 +84,33 @@
                     </div>
                 </div>
 
-                <div class="card">
+                <div class="card" x-data="recentCalls('{{ selected_elder.id | default(value='') }}')">
                     <div class="card-header">
                         <h2 class="card-title">Actividad Reciente</h2>
+                        <a href="/elder/logs/calls" class="btn btn-link text-sm">Ver todas →</a>
                     </div>
-                    {% if last_call_at %}
-                    <div class="action-card">
-                        <span class="icon-box-sm bg-primary-500/20 text-base">📞</span>
-                        <div>
-                            <p class="text-sm font-medium text-stone-100">Última llamada</p>
-                            <p class="text-xs text-stone-400">{{ last_call_at }}</p>
-                        </div>
+                    <div class="space-y-2">
+                        <template x-if="loading">
+                            <div class="text-center py-4 text-stone-500 text-sm">Cargando...</div>
+                        </template>
+                        <template x-if="!loading && calls.length === 0">
+                            <div class="text-center py-4 text-stone-500 text-sm">Sin actividad reciente</div>
+                        </template>
+                        <template x-for="call in calls" :key="call.id">
+                            <a :href="'/elder/logs/calls?call=' + call.id" class="action-card hover:bg-surface-800">
+                                <span class="icon-box-sm text-base" :class="call.status === 'completed' ? 'bg-emerald-500/20' : 'bg-primary-500/20'">📞</span>
+                                <div class="flex-1 min-w-0">
+                                    <p class="text-sm font-medium text-stone-100" x-text="formatDate(call.started_at)"></p>
+                                    <p class="text-xs text-stone-400">
+                                        <span x-text="call.ended_at ? formatDuration(call.started_at, call.ended_at) : 'En progreso'"></span>
+                                        <span x-show="call.tools_used && call.tools_used.length > 0" class="ml-2 text-primary-400" x-text="'• ' + call.tools_used.length + ' herramienta(s)'"></span>
+                                    </p>
+                                </div>
+                                <span x-show="call.status === 'completed'" class="badge badge-green text-xs">✓</span>
+                                <span x-show="call.status === 'transferred'" class="badge badge-yellow text-xs">→</span>
+                            </a>
+                        </template>
                     </div>
-                    {% else %}
-                    <div class="text-center py-8 text-stone-500">
-                        <p>Sin actividad reciente</p>
-                    </div>
-                    {% endif %}
                 </div>
             </div>
             
@@ -118,4 +128,59 @@
         </div>
     </main>
 </div>
+
+<script>
+function recentCalls(elderId) {
+    return {
+        elderId,
+        calls: [],
+        loading: true,
+        
+        async init() {
+            if (!this.elderId) {
+                this.loading = false;
+                return;
+            }
+            await this.loadCalls();
+        },
+        
+        async loadCalls() {
+            this.loading = true;
+            try {
+                const res = await fetch(`/api/elder/${this.elderId}/call-logs?per_page=5`);
+                if (res.ok) {
+                    const data = await res.json();
+                    this.calls = data.items || [];
+                }
+            } catch (e) {
+                console.error('Failed to load calls:', e);
+            }
+            this.loading = false;
+        },
+        
+        formatDate(dateStr) {
+            if (!dateStr) return '';
+            const date = new Date(dateStr);
+            const now = new Date();
+            const diffMs = now - date;
+            const diffMins = Math.round(diffMs / 60000);
+            const diffHours = Math.round(diffMs / 3600000);
+            const diffDays = Math.round(diffMs / 86400000);
+            
+            if (diffMins < 60) return `Hace ${diffMins} minutos`;
+            if (diffHours < 24) return `Hace ${diffHours} horas`;
+            if (diffDays === 1) return 'Ayer';
+            return date.toLocaleDateString('es-MX', { month: 'short', day: 'numeric' });
+        },
+        
+        formatDuration(start, end) {
+            if (!start || !end) return '';
+            const ms = new Date(end) - new Date(start);
+            const mins = Math.round(ms / 60000);
+            if (mins < 1) return 'Menos de 1 min';
+            return `${mins} min`;
+        }
+    }
+}
+</script>
 {% endblock %}
