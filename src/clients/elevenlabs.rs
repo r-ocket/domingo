@@ -2,6 +2,11 @@
 //!
 //! Provides real-time voice conversation capabilities using ElevenLabs' 
 //! Conversational AI with Claude Sonnet 4.5 as the LLM backend.
+//!
+//! ElevenLabs Conversational AI requires:
+//! 1. An agent_id (pre-configured in ElevenLabs dashboard with voice, LLM, tools)
+//! 2. Get a signed WebSocket URL via REST API
+//! 3. Connect to the signed URL
 
 use futures_util::{SinkExt, StreamExt};
 use serde::{Deserialize, Serialize};
@@ -13,6 +18,12 @@ use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 /// ElevenLabs Conversational AI client
 pub struct ElevenLabsClient {
     api_key: String,
+    /// Agent ID configured in ElevenLabs dashboard
+    /// The agent should be configured with:
+    /// - Voice: Juan (Spanish)
+    /// - LLM: Claude Sonnet 4.5
+    /// - Language: Spanish
+    agent_id: Option<String>,
 }
 
 impl ElevenLabsClient {
@@ -20,7 +31,53 @@ impl ElevenLabsClient {
     pub fn new(api_key: &str) -> Self {
         Self {
             api_key: api_key.to_string(),
+            agent_id: None,
         }
+    }
+    
+    /// Create a new ElevenLabs client with a specific agent ID
+    pub fn with_agent(api_key: &str, agent_id: &str) -> Self {
+        Self {
+            api_key: api_key.to_string(),
+            agent_id: Some(agent_id.to_string()),
+        }
+    }
+    
+    /// Get a signed WebSocket URL for the conversation
+    async fn get_signed_url(&self) -> Result<String, ElevenLabsError> {
+        let agent_id = self.agent_id.as_ref()
+            .ok_or_else(|| ElevenLabsError::Api("No agent_id configured. Create an agent in ElevenLabs dashboard.".to_string()))?;
+        
+        let client = reqwest::Client::new();
+        let url = format!(
+            "https://api.elevenlabs.io/v1/convai/conversation/get_signed_url?agent_id={}",
+            agent_id
+        );
+        
+        let response = client
+            .get(&url)
+            .header("xi-api-key", &self.api_key)
+            .send()
+            .await
+            .map_err(|e| ElevenLabsError::Connection(e.to_string()))?;
+        
+        if !response.status().is_success() {
+            let status = response.status();
+            let body = response.text().await.unwrap_or_default();
+            return Err(ElevenLabsError::Api(format!("Failed to get signed URL: {} - {}", status, body)));
+        }
+        
+        #[derive(Deserialize)]
+        struct SignedUrlResponse {
+            signed_url: String,
+        }
+        
+        let data: SignedUrlResponse = response
+            .json()
+            .await
+            .map_err(|e| ElevenLabsError::Api(format!("Failed to parse signed URL response: {}", e)))?;
+        
+        Ok(data.signed_url)
     }
     
     /// Connect to the Conversational AI and return a session handle
@@ -28,21 +85,20 @@ impl ElevenLabsClient {
         &self,
         agent_config: AgentConfig,
     ) -> Result<ConversationSession, ElevenLabsError> {
-        // ElevenLabs Conversational AI WebSocket endpoint
-        let url = "wss://api.elevenlabs.io/v1/convai/conversation";
+        // Get signed WebSocket URL from ElevenLabs
+        let signed_url = self.get_signed_url().await?;
         
-        // Create WebSocket request with auth
-        let mut request = url.into_client_request()
+        tracing::info!("Connecting to ElevenLabs Conversational AI");
+        
+        // Connect to the signed WebSocket URL
+        let request = signed_url.into_client_request()
             .map_err(|e| ElevenLabsError::Connection(e.to_string()))?;
-        
-        request.headers_mut().insert(
-            "xi-api-key",
-            self.api_key.parse().unwrap(),
-        );
         
         let (ws_stream, _) = connect_async(request)
             .await
-            .map_err(|e| ElevenLabsError::Connection(e.to_string()))?;
+            .map_err(|e| ElevenLabsError::Connection(format!("WebSocket connection failed: {}", e)))?;
+        
+        tracing::info!("Connected to ElevenLabs WebSocket");
         
         let (write, read) = ws_stream.split();
         
@@ -58,6 +114,7 @@ impl ElevenLabsClient {
             let mut rx = outbound_rx;
             while let Some(msg) = rx.recv().await {
                 let json = serde_json::to_string(&msg).unwrap();
+                tracing::debug!("Sending to ElevenLabs: {}", json);
                 let mut guard = write_clone.lock().await;
                 if guard.send(Message::Text(json.into())).await.is_err() {
                     break;
@@ -72,14 +129,23 @@ impl ElevenLabsClient {
             while let Some(msg) = read.next().await {
                 match msg {
                     Ok(Message::Text(text)) => {
+                        tracing::debug!("Received from ElevenLabs: {}", text);
                         if let Ok(event) = serde_json::from_str::<ServerMessage>(&text) {
                             if tx.send(event).await.is_err() {
                                 break;
                             }
+                        } else {
+                            tracing::warn!("Failed to parse ElevenLabs message: {}", text);
                         }
                     }
-                    Ok(Message::Close(_)) => break,
-                    Err(_) => break,
+                    Ok(Message::Close(_)) => {
+                        tracing::info!("ElevenLabs WebSocket closed");
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::error!("ElevenLabs WebSocket error: {}", e);
+                        break;
+                    }
                     _ => {}
                 }
             }
@@ -90,8 +156,12 @@ impl ElevenLabsClient {
             inbound_rx,
         };
         
-        // Initialize the conversation with agent config
-        session.initialize(agent_config).await?;
+        // Send initial configuration override if needed
+        // Note: Most config should be in the agent settings in ElevenLabs dashboard
+        // But we can override the prompt with dynamic context
+        if !agent_config.system_prompt.is_empty() {
+            session.send_context_override(&agent_config.system_prompt).await?;
+        }
         
         Ok(session)
     }
@@ -136,7 +206,19 @@ pub struct ConversationSession {
 }
 
 impl ConversationSession {
-    /// Initialize the conversation with configuration
+    /// Send dynamic context to override/augment the agent's system prompt
+    /// This is useful for injecting elder-specific information
+    async fn send_context_override(&self, context: &str) -> Result<(), ElevenLabsError> {
+        // Send context injection message
+        // ElevenLabs Conversational AI supports dynamic context via conversation.item.create
+        let msg = ClientMessage::ContextOverride {
+            context: context.to_string(),
+        };
+        self.send_message(msg).await
+    }
+    
+    /// Initialize the conversation with configuration (legacy method - kept for compatibility)
+    #[allow(dead_code)]
     async fn initialize(&self, config: AgentConfig) -> Result<(), ElevenLabsError> {
         // Build conversation config message
         let init_msg = ClientMessage::ConversationInitiation {
@@ -225,6 +307,11 @@ pub enum ClientMessage {
     /// Initialize conversation with config
     ConversationInitiation {
         conversation_config_override: ConversationConfigOverride,
+    },
+    /// Send dynamic context to augment the agent's knowledge
+    #[serde(rename = "context_override")]
+    ContextOverride {
+        context: String,
     },
     /// Send audio chunk
     #[serde(rename = "user_audio_chunk")]
@@ -446,4 +533,5 @@ Solo tienes DOS herramientas:
 2. Responde usando SOLO esa información
 3. Si el medicamento no está listado, di "No tengo ese medicamento en su registro"
 "#;
+
 

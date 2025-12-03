@@ -56,7 +56,13 @@ impl AppState {
         
         let openai = Arc::new(clients::OpenAIClient::new(&config.openai_api_key));
         
-        let elevenlabs = Arc::new(clients::ElevenLabsClient::new(&config.elevenlabs_api_key));
+        let elevenlabs = Arc::new(
+            if let Some(agent_id) = &config.elevenlabs_agent_id {
+                clients::ElevenLabsClient::with_agent(&config.elevenlabs_api_key, agent_id)
+            } else {
+                clients::ElevenLabsClient::new(&config.elevenlabs_api_key)
+            }
+        );
         
         let uber = Arc::new(clients::UberClient::new(
             &config.uber_client_id,

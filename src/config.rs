@@ -23,6 +23,9 @@ pub struct Config {
     
     // ElevenLabs
     pub elevenlabs_api_key: String,
+    /// ElevenLabs Conversational AI Agent ID (create in ElevenLabs dashboard)
+    /// The agent should be configured with Spanish language, Claude Sonnet 4.5, and Juan voice
+    pub elevenlabs_agent_id: Option<String>,
     
     // Uber
     pub uber_client_id: String,
@@ -69,6 +72,7 @@ impl Config {
             
             // ElevenLabs
             elevenlabs_api_key: env::var("ELEVENLABS_API_KEY").unwrap_or_default(),
+            elevenlabs_agent_id: env::var("ELEVENLABS_AGENT_ID").ok(),
             
             // Uber
             uber_client_id: env::var("UBER_CLIENT_ID").unwrap_or_default(),
