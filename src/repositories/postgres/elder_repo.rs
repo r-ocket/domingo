@@ -96,7 +96,6 @@ impl ElderRepository {
     }
     
     /// List all elders for a caregiver (supports multiple elders per caregiver)
-    #[allow(dead_code)]
     pub async fn list_by_caregiver(pool: &PostgresPool, caregiver_id: Uuid) -> DomainResult<Vec<Elder>> {
         let client = pool.get().await?;
         

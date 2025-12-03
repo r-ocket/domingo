@@ -9,57 +9,89 @@
             <!-- Page Header -->
             <header class="page-header">
                 <div>
-                    <h1 class="page-title">Billing</h1>
-                    <p class="page-subtitle">Manage your subscription and view usage</p>
-            </div>
+                    <h1 class="page-title">Facturación</h1>
+                    <p class="page-subtitle">Administra tu suscripción y consulta el uso del servicio</p>
+                </div>
             </header>
                     
-                    {% if subscription %}
+            {% if subscription %}
             <!-- Current Plan -->
             <div class="card mb-6">
                 <div class="flex items-start justify-between">
-                        <div>
-                        <h2 class="text-lg font-display font-semibold text-stone-100 mb-1">Current Plan</h2>
+                    <div>
+                        <h2 class="text-lg font-display font-semibold text-stone-100 mb-1">Plan Actual</h2>
                         <p class="text-2xl font-display font-bold text-primary-400 mb-2">
-                            {% if subscription.plan == "monthly" %}$19/month{% else %}$190/year{% endif %}
+                            {% if subscription.plan == "monthly" %}$19/mes{% else %}$190/año{% endif %}
                         </p>
                         <div class="flex items-center gap-2">
-                                {% if subscription.status == "active" %}
-                            <span class="badge badge-green">Active</span>
+                            {% if subscription.status == "active" %}
+                            <span class="badge badge-green">Activo</span>
                             {% elif subscription.status == "trialing" %}
-                            <span class="badge badge-blue">Trial</span>
+                            <span class="badge badge-blue">Prueba</span>
                             {% elif subscription.status == "past_due" %}
-                            <span class="badge badge-red">Past Due</span>
+                            <span class="badge badge-red">Pago Pendiente</span>
                             {% else %}
                             <span class="badge badge-gray">{{ subscription.status }}</span>
                             {% endif %}
                             <span class="text-sm text-stone-500">
-                                Renews {{ subscription.current_period_end | date(format="%B %d, %Y") }}
+                                Renueva el {{ subscription.current_period_end | date(format="%d de %B, %Y") }}
                             </span>
                         </div>
                     </div>
-                    <form hx-post="/billing/portal" hx-swap="none" 
+                    <form hx-post="/api/billing/portal" hx-swap="none" 
                           @htmx:after-request="if(event.detail.xhr.response) window.location.href = JSON.parse(event.detail.xhr.response).url">
-                        <button type="submit" class="btn btn-secondary">Manage Subscription</button>
+                        <button type="submit" class="btn btn-secondary">Administrar Suscripción</button>
                     </form>
                 </div>
             </div>
 
-            <!-- Usage Stats -->
-            <h2 class="text-lg font-display font-semibold text-stone-100 mb-4">Usage This Month</h2>
+            <!-- Elder Usage Cards -->
+            {% if elders is defined and elders | length > 0 %}
+            <h2 class="text-lg font-display font-semibold text-stone-100 mb-4">Uso por Adulto Mayor Este Mes</h2>
+            <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4 mb-6">
+                {% for elder in elders %}
+                <div class="card {% if selected_elder and elder.id == selected_elder.id %}border-primary-500/50{% endif %}">
+                    <div class="flex items-center gap-3 mb-4">
+                        <div class="w-10 h-10 rounded-full bg-primary-500/20 flex items-center justify-center text-xl">👴</div>
+                        <div>
+                            <h3 class="font-medium text-stone-100">{{ elder.name }}</h3>
+                            <p class="text-xs text-stone-500 capitalize">{{ elder.relationship }}</p>
+                        </div>
+                    </div>
+                    <div class="grid grid-cols-3 gap-2 text-center">
+                        <div>
+                            <p class="text-lg font-semibold text-stone-100">-</p>
+                            <p class="text-xs text-stone-500">Llamadas</p>
+                        </div>
+                        <div>
+                            <p class="text-lg font-semibold text-stone-100">-</p>
+                            <p class="text-xs text-stone-500">Minutos</p>
+                        </div>
+                        <div>
+                            <p class="text-lg font-semibold text-stone-100">-</p>
+                            <p class="text-xs text-stone-500">Viajes</p>
+                        </div>
+                    </div>
+                </div>
+                {% endfor %}
+            </div>
+            {% endif %}
+
+            <!-- Aggregate Usage Stats -->
+            <h2 class="text-lg font-display font-semibold text-stone-100 mb-4">Uso Total Este Mes</h2>
             <div class="grid grid-cols-1 md:grid-cols-3 gap-4 mb-6">
                 <div class="stat-card">
                     <div>
                         <p class="stat-value">{{ usage.calls | default(value=0) }}</p>
-                        <p class="stat-label">Voice Calls</p>
+                        <p class="stat-label">Llamadas de Voz</p>
                     </div>
                     <span class="stat-icon bg-purple-500/20">📞</span>
-                    </div>
-                    
+                </div>
+                
                 <div class="stat-card">
                     <div>
                         <p class="stat-value">{{ usage.minutes | default(value=0) }}</p>
-                        <p class="stat-label">Call Minutes</p>
+                        <p class="stat-label">Minutos de Llamada</p>
                     </div>
                     <span class="stat-icon bg-sky-500/20">⏱</span>
                 </div>
@@ -67,7 +99,7 @@
                 <div class="stat-card">
                     <div>
                         <p class="stat-value">{{ usage.rides | default(value=0) }}</p>
-                        <p class="stat-label">Rides Booked</p>
+                        <p class="stat-label">Viajes Reservados</p>
                     </div>
                     <span class="stat-icon bg-emerald-500/20">🚗</span>
                 </div>
@@ -76,67 +108,79 @@
             {% else %}
             <!-- No Subscription - Show Pricing -->
             <div class="text-center mb-8">
-                <h2 class="text-2xl font-display font-semibold text-stone-100 mb-2">Choose your plan</h2>
-                <p class="text-stone-400">Start with a 14-day free trial. Cancel anytime.</p>
+                <h2 class="text-2xl font-display font-semibold text-stone-100 mb-2">Elige tu plan</h2>
+                <p class="text-stone-400">Comienza con una prueba gratuita de 14 días. Cancela cuando quieras.</p>
             </div>
+            
+            <!-- Show elder count if any -->
+            {% if elders is defined and elders | length > 0 %}
+            <div class="text-center mb-6">
+                <p class="text-stone-400">
+                    Tu plan cubrirá a <span class="text-primary-400 font-semibold">{{ elders | length }}</span> adulto{% if elders | length > 1 %}s{% endif %} mayor{% if elders | length > 1 %}es{% endif %}:
+                    {% for elder in elders %}
+                    <span class="text-stone-100">{{ elder.name }}</span>{% if not loop.last %}, {% endif %}
+                    {% endfor %}
+                </p>
+            </div>
+            {% endif %}
                     
             <div class="grid grid-cols-1 md:grid-cols-2 gap-6 max-w-2xl mx-auto">
                 <!-- Monthly Plan -->
                 <div class="card">
-                    <h3 class="text-lg font-display font-semibold text-stone-100 mb-2">Monthly</h3>
-                    <p class="text-3xl font-display font-bold text-stone-50 mb-1">$19<span class="text-lg text-stone-400">/mo</span></p>
-                    <p class="text-sm text-stone-500 mb-6">Billed monthly</p>
+                    <h3 class="text-lg font-display font-semibold text-stone-100 mb-2">Mensual</h3>
+                    <p class="text-3xl font-display font-bold text-stone-50 mb-1">$19<span class="text-lg text-stone-400">/mes</span></p>
+                    <p class="text-sm text-stone-500 mb-6">Cobro mensual</p>
                     
                     <ul class="space-y-3 mb-6 text-sm text-stone-300">
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> Unlimited voice calls
-                                </li>
+                            <span class="text-emerald-400">✓</span> Llamadas de voz ilimitadas
+                        </li>
                         <li class="flex items-center gap-2">
-                                    <span class="text-emerald-400">✓</span> Medication reminders
-                                </li>
+                            <span class="text-emerald-400">✓</span> Recordatorios de medicamentos
+                        </li>
                         <li class="flex items-center gap-2">
-                                    <span class="text-emerald-400">✓</span> Ride booking
-                                </li>
+                            <span class="text-emerald-400">✓</span> Reserva de viajes
+                        </li>
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> Emergency contacts
-                                </li>
+                            <span class="text-emerald-400">✓</span> Contactos de emergencia
+                        </li>
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> Call logs & transcripts
-                                </li>
-                            </ul>
+                            <span class="text-emerald-400">✓</span> Historial y transcripciones
+                        </li>
+                    </ul>
                     
-                    <form hx-post="/billing/checkout" hx-swap="none"
+                    <form hx-post="/api/billing/subscribe" hx-swap="none" hx-ext="json-enc"
                           @htmx:after-request="if(event.detail.xhr.response) window.location.href = JSON.parse(event.detail.xhr.response).url">
                         <input type="hidden" name="plan" value="monthly">
-                        <button type="submit" class="btn btn-primary w-full">Start Free Trial</button>
-                            </form>
+                        <button type="submit" class="btn btn-primary w-full">Comenzar Prueba Gratis</button>
+                    </form>
                 </div>
 
                 <!-- Annual Plan -->
                 <div class="card border-primary-500/50">
                     <div class="flex items-center gap-2 mb-2">
-                        <h3 class="text-lg font-display font-semibold text-stone-100">Annual</h3>
-                        <span class="badge badge-green">Save 17%</span>
+                        <h3 class="text-lg font-display font-semibold text-stone-100">Anual</h3>
+                        <span class="badge badge-green">Ahorra 17%</span>
                     </div>
-                    <p class="text-3xl font-display font-bold text-stone-50 mb-1">$190<span class="text-lg text-stone-400">/yr</span></p>
-                    <p class="text-sm text-stone-500 mb-6">Billed annually</p>
+                    <p class="text-3xl font-display font-bold text-stone-50 mb-1">$190<span class="text-lg text-stone-400">/año</span></p>
+                    <p class="text-sm text-stone-500 mb-6">Cobro anual</p>
                     
                     <ul class="space-y-3 mb-6 text-sm text-stone-300">
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> Everything in Monthly
+                            <span class="text-emerald-400">✓</span> Todo lo del plan mensual
                         </li>
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> 2 months free
+                            <span class="text-emerald-400">✓</span> 2 meses gratis
                         </li>
                         <li class="flex items-center gap-2">
-                            <span class="text-emerald-400">✓</span> Priority support
+                            <span class="text-emerald-400">✓</span> Soporte prioritario
                         </li>
                     </ul>
                     
-                    <form hx-post="/billing/checkout" hx-swap="none"
+                    <form hx-post="/api/billing/subscribe" hx-swap="none" hx-ext="json-enc"
                           @htmx:after-request="if(event.detail.xhr.response) window.location.href = JSON.parse(event.detail.xhr.response).url">
                         <input type="hidden" name="plan" value="annual">
-                        <button type="submit" class="btn btn-primary w-full">Start Free Trial</button>
+                        <button type="submit" class="btn btn-primary w-full">Comenzar Prueba Gratis</button>
                     </form>
                 </div>
             </div>

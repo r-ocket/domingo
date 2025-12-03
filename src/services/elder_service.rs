@@ -21,13 +21,6 @@ impl ElderService {
         caregiver_id: Uuid,
         req: &CreateElderRequest,
     ) -> DomainResult<Elder> {
-        // Check if caregiver already has an elder
-        if let Some(_existing) = ElderRepository::find_by_caregiver(pool, caregiver_id).await? {
-            return Err(DomainError::Conflict(
-                "Caregiver already has an elder profile".to_string(),
-            ));
-        }
-        
         // Validate phone number
         if req.phone_number.is_empty() {
             return Err(DomainError::Validation("Phone number is required".to_string()));
@@ -66,6 +59,11 @@ impl ElderService {
     /// Get elder by phone number (for incoming calls)
     pub async fn get_elder_by_phone(pool: &PostgresPool, phone: &str) -> DomainResult<Elder> {
         ElderRepository::find_by_phone(pool, phone).await
+    }
+    
+    /// Find elder by ID (no auth check - for internal/debug use)
+    pub async fn find_elder_by_id(pool: &PostgresPool, elder_id: Uuid) -> DomainResult<Elder> {
+        ElderRepository::find_by_id(pool, elder_id).await
     }
     
     /// Update elder profile

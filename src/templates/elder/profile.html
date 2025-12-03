@@ -5,18 +5,90 @@
     {% include "partials/sidebar.html" %}
     
     <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
-        <div class="page-container">
+        <div class="page-container" x-data="{ showNewForm: {{ show_new_form | default(value='false') }} }">
             <!-- Page Header -->
             <header class="page-header">
                 <div>
                     <h1 class="page-title">Perfil del Adulto Mayor</h1>
                     <p class="page-subtitle">Administra la información de tu adulto mayor</p>
                 </div>
+                {% if elder %}
+                <div class="page-actions">
+                    <button @click="showNewForm = !showNewForm" class="btn btn-secondary" x-text="showNewForm ? 'Cancelar' : '+ Agregar Otro'"></button>
+                </div>
+                {% endif %}
             </header>
 
             <div class="max-w-2xl">
-                <div class="card">
-                    {% if elder %}
+                {% if elder %}
+                <!-- New Elder Form (shown when adding another elder) -->
+                <div x-show="showNewForm" x-cloak class="card mb-6">
+                    <div class="card-header">
+                        <h2 class="card-title">Agregar Nuevo Adulto Mayor</h2>
+                    </div>
+                    <form hx-post="/api/elder" 
+                          hx-ext="json-enc"
+                          hx-swap="none"
+                          @htmx:after-request="if(event.detail.successful) window.location.href = '/dashboard'"
+                          class="space-y-5">
+                        <p class="text-stone-400 mb-4">Agrega otro adulto mayor a tu cuenta. Cada uno tendrá su propio perfil, contactos, ubicaciones y medicamentos.</p>
+                        
+                        <div id="new-form-feedback"></div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="form-group">
+                                <label class="form-label">Nombre</label>
+                                <input type="text" name="name" required placeholder="María, José, Carmen..." class="form-input">
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Relación</label>
+                                <select name="relationship" class="form-select">
+                                    <option value="madre">Madre</option>
+                                    <option value="padre">Padre</option>
+                                    <option value="abuela">Abuela</option>
+                                    <option value="abuelo">Abuelo</option>
+                                    <option value="tia">Tía</option>
+                                    <option value="tio">Tío</option>
+                                    <option value="familiar">Otro Familiar</option>
+                                </select>
+                            </div>
+                        </div>
+                        
+                        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+                            <div class="form-group">
+                                <label class="form-label">Número de Teléfono</label>
+                                <input type="tel" name="phone_number" required placeholder="+521234567890" class="form-input">
+                                <p class="form-hint">Este es el número desde el que llamarán</p>
+                            </div>
+                            <div class="form-group">
+                                <label class="form-label">Zona Horaria</label>
+                                <select name="timezone" class="form-select">
+                                    <option value="America/Mexico_City">Ciudad de México</option>
+                                    <option value="America/Cancun">Cancún (Sureste)</option>
+                                    <option value="America/Monterrey">Monterrey</option>
+                                    <option value="America/Tijuana">Tijuana (Pacífico)</option>
+                                    <option value="America/Chihuahua">Chihuahua</option>
+                                </select>
+                            </div>
+                        </div>
+
+                        <div class="form-group">
+                            <label class="form-label">Idioma</label>
+                            <select name="language" class="form-select max-w-xs">
+                                <option value="es">Español</option>
+                                <option value="en">Inglés</option>
+                            </select>
+                        </div>
+
+                        <button type="submit" class="btn btn-primary">Crear Perfil</button>
+                    </form>
+                </div>
+
+                <!-- Edit Current Elder Profile -->
+                <div class="card" x-show="!showNewForm">
+                    <div class="card-header mb-4">
+                        <h2 class="card-title">{{ elder.name }} <span class="text-stone-500 text-sm font-normal capitalize">({{ elder.relationship }})</span></h2>
+                    </div>
                     <form hx-put="/api/elder/{{ elder.id }}" 
                           hx-ext="json-enc"
                           hx-target="#form-feedback" 
@@ -72,7 +144,10 @@
 
                         <button type="submit" class="btn btn-primary">Guardar Cambios</button>
                     </form>
-                    {% else %}
+                </div>
+                {% else %}
+                <!-- Create First Elder Profile -->
+                <div class="card">
                     <form hx-post="/api/elder" 
                           hx-ext="json-enc"
                           hx-swap="none"
@@ -130,8 +205,8 @@
 
                         <button type="submit" class="btn btn-primary">Crear Perfil</button>
                     </form>
-                    {% endif %}
                 </div>
+                {% endif %}
             </div>
         </div>
     </main>
