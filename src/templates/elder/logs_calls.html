@@ -79,36 +79,129 @@
                 <button @click="page++; loadCalls()" :disabled="page >= totalPages" class="btn btn-ghost btn-sm">Siguiente →</button>
             </div>
 
-            <!-- Detail Modal -->
+            <!-- Detail Modal - Call Center Style -->
             <div x-show="selectedCall" x-cloak class="modal-container" @keydown.escape.window="selectedCall = null">
                 <div class="modal-backdrop" @click="selectedCall = null"></div>
-                <div class="modal max-w-2xl">
-                    <h2 class="modal-title">Detalle de Llamada</h2>
-                    <div class="modal-body space-y-4">
-                        <template x-if="selectedCall">
-                            <div class="space-y-3">
-                                <div class="grid grid-cols-2 gap-4">
+                <div class="modal max-w-4xl h-[80vh] flex flex-col">
+                    <template x-if="selectedCall">
+                        <div class="flex flex-col h-full">
+                            <!-- Call Header -->
+                            <div class="flex items-center justify-between pb-4 border-b border-surface-700/50">
+                                <div class="flex items-center gap-3">
+                                    <div class="w-12 h-12 rounded-full bg-primary-500/20 flex items-center justify-center text-2xl">📞</div>
                                     <div>
-                                        <p class="text-xs text-stone-500 uppercase">Inicio</p>
-                                        <p class="text-stone-100" x-text="formatDateTime(selectedCall.started_at)"></p>
-                                    </div>
-                                    <div>
-                                        <p class="text-xs text-stone-500 uppercase">Fin</p>
-                                        <p class="text-stone-100" x-text="selectedCall.ended_at ? formatDateTime(selectedCall.ended_at) : 'En progreso'"></p>
+                                        <h2 class="text-lg font-display font-semibold text-stone-100">Llamada del <span x-text="formatDate(selectedCall.started_at)"></span></h2>
+                                        <div class="flex items-center gap-3 text-sm text-stone-500">
+                                            <span x-text="formatTime(selectedCall.started_at)"></span>
+                                            <span>•</span>
+                                            <span x-text="selectedCall.ended_at ? formatDuration(selectedCall.started_at, selectedCall.ended_at) : 'En progreso'"></span>
+                                        </div>
                                     </div>
                                 </div>
-                                <div x-show="selectedCall.transcript">
-                                    <p class="text-xs text-stone-500 uppercase mb-2">Transcripción</p>
-                                    <div class="bg-surface-900 rounded p-3 text-sm text-stone-300 max-h-64 overflow-y-auto">
-                                        <p x-text="selectedCall.transcript" class="whitespace-pre-wrap"></p>
+                                <div class="flex items-center gap-2">
+                                    <span class="badge" :class="{
+                                        'badge-green': selectedCall.status === 'completed',
+                                        'badge-blue': selectedCall.status === 'in_progress',
+                                        'badge-yellow': selectedCall.status === 'transferred',
+                                        'badge-stone': !['completed', 'in_progress', 'transferred'].includes(selectedCall.status)
+                                    }" x-text="statusLabel(selectedCall.status)"></span>
+                                    <button @click="selectedCall = null" class="btn btn-ghost btn-sm">✕</button>
+                                </div>
+                            </div>
+
+                            <!-- Tabs -->
+                            <div class="flex border-b border-surface-700/50 mt-2">
+                                <button 
+                                    @click="activeTab = 'transcript'" 
+                                    class="px-4 py-2 text-sm font-medium transition-colors"
+                                    :class="activeTab === 'transcript' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-stone-400 hover:text-stone-200'"
+                                >
+                                    Transcripción
+                                </button>
+                                <button 
+                                    @click="activeTab = 'tools'" 
+                                    class="px-4 py-2 text-sm font-medium transition-colors"
+                                    :class="activeTab === 'tools' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-stone-400 hover:text-stone-200'"
+                                >
+                                    Herramientas
+                                    <span class="ml-1 text-xs" x-show="selectedCall.tools_used && selectedCall.tools_used.length > 0" x-text="'(' + selectedCall.tools_used.length + ')'"></span>
+                                </button>
+                                <button 
+                                    @click="activeTab = 'details'" 
+                                    class="px-4 py-2 text-sm font-medium transition-colors"
+                                    :class="activeTab === 'details' ? 'text-primary-400 border-b-2 border-primary-400' : 'text-stone-400 hover:text-stone-200'"
+                                >
+                                    Detalles
+                                </button>
+                            </div>
+
+                            <!-- Tab Content -->
+                            <div class="flex-1 overflow-hidden mt-2">
+                                <!-- Transcript Tab -->
+                                <div x-show="activeTab === 'transcript'" class="h-full overflow-y-auto p-4">
+                                    <template x-if="!selectedCall.summary_text">
+                                        <div class="text-center text-stone-500 py-8">
+                                            <p>No hay transcripción disponible para esta llamada.</p>
+                                        </div>
+                                    </template>
+                                    <template x-if="selectedCall.summary_text">
+                                        <div class="bg-surface-800/50 rounded-lg p-4 border border-surface-700/50">
+                                            <p class="text-sm text-stone-300 whitespace-pre-wrap leading-relaxed" x-text="selectedCall.summary_text"></p>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <!-- Tools Tab -->
+                                <div x-show="activeTab === 'tools'" class="h-full overflow-y-auto p-4 space-y-3">
+                                    <template x-if="!selectedCall.tools_used || selectedCall.tools_used.length === 0">
+                                        <div class="text-center text-stone-500 py-8">
+                                            <p>No se ejecutaron herramientas en esta llamada.</p>
+                                        </div>
+                                    </template>
+                                    <template x-for="(tool, idx) in (selectedCall.tools_used || [])" :key="idx">
+                                        <div class="bg-surface-800/50 border border-surface-700/50 rounded-lg px-4 py-3 flex items-center gap-3">
+                                            <span class="text-primary-400 text-lg">⚡</span>
+                                            <span class="font-mono text-sm text-stone-200" x-text="tool"></span>
+                                        </div>
+                                    </template>
+                                </div>
+
+                                <!-- Details Tab -->
+                                <div x-show="activeTab === 'details'" class="h-full overflow-y-auto p-4">
+                                    <div class="grid grid-cols-2 gap-6">
+                                        <div class="space-y-4">
+                                            <div>
+                                                <p class="text-xs text-stone-500 uppercase mb-1">Inicio</p>
+                                                <p class="text-stone-100" x-text="formatDateTime(selectedCall.started_at)"></p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-stone-500 uppercase mb-1">Fin</p>
+                                                <p class="text-stone-100" x-text="selectedCall.ended_at ? formatDateTime(selectedCall.ended_at) : 'En progreso'"></p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-stone-500 uppercase mb-1">Duración</p>
+                                                <p class="text-stone-100" x-text="selectedCall.duration_seconds ? (selectedCall.duration_seconds + ' segundos') : '—'"></p>
+                                            </div>
+                                        </div>
+                                        <div class="space-y-4">
+                                            <div>
+                                                <p class="text-xs text-stone-500 uppercase mb-1">Estado</p>
+                                                <p class="text-stone-100" x-text="statusLabel(selectedCall.status)"></p>
+                                            </div>
+                                            <div x-show="selectedCall.transferred_to">
+                                                <p class="text-xs text-stone-500 uppercase mb-1">Transferida a</p>
+                                                <p class="text-stone-100" x-text="selectedCall.transferred_to"></p>
+                                            </div>
+                                            <div>
+                                                <p class="text-xs text-stone-500 uppercase mb-1">Número de origen</p>
+                                                <p class="text-stone-100 font-mono text-sm" x-text="selectedCall.from_number"></p>
+                                            </div>
+                                        </div>
                                     </div>
                                 </div>
                             </div>
-                        </template>
-                    </div>
-                    <div class="modal-footer">
-                        <button @click="selectedCall = null" class="btn btn-ghost">Cerrar</button>
-                    </div>
+                        </div>
+                    </template>
                 </div>
             </div>
             {% else %}
@@ -130,10 +223,21 @@ function callLogsPage(elderId) {
         page: 1,
         totalPages: 1,
         selectedCall: null,
+        activeTab: 'transcript',
         
         async init() {
             if (!this.elderId) return;
             await this.loadCalls();
+            
+            // Check for call ID in URL to auto-open
+            const urlParams = new URLSearchParams(window.location.search);
+            const callId = urlParams.get('call');
+            if (callId) {
+                const call = this.calls.find(c => c.id === callId);
+                if (call) {
+                    this.viewCall(call);
+                }
+            }
         },
         
         async loadCalls() {
@@ -153,6 +257,18 @@ function callLogsPage(elderId) {
         
         viewCall(call) {
             this.selectedCall = call;
+            this.activeTab = 'transcript';
+        },
+        
+        statusLabel(status) {
+            const labels = {
+                'completed': 'Completada',
+                'in_progress': 'En Progreso',
+                'transferred': 'Transferida',
+                'failed': 'Fallida',
+                'ended': 'Finalizada'
+            };
+            return labels[status] || status;
         },
         
         formatDate(dateStr) {

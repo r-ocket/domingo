@@ -65,6 +65,7 @@ pub fn api_routes() -> Router<AppState> {
         
         // Logs
         .route("/api/elder/:elder_id/call-logs", get(logs::list_call_logs))
+        .route("/api/elder/:elder_id/call-logs/:call_id", get(logs::get_call_log))
         .route("/api/elder/:elder_id/ride-logs", get(logs::list_ride_logs))
         .route("/api/elder/:elder_id/rides/active", get(logs::get_active_ride))
         .route("/api/elder/:elder_id/reminder-logs", get(logs::list_reminder_logs))

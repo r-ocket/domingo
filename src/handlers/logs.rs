@@ -47,6 +47,30 @@ pub async fn list_call_logs(
     }))
 }
 
+/// Get a specific call log by ID
+pub async fn get_call_log(
+    State(state): State<AppState>,
+    auth: AuthUser,
+    Path((elder_id, call_id)): Path<(Uuid, Uuid)>,
+) -> Result<impl IntoResponse, ApiError> {
+    // Verify access to elder
+    let _ = ElderService::get_elder(
+        &state.db,
+        elder_id,
+        auth.session.caregiver_id,
+        auth.is_admin(),
+    ).await?;
+    
+    let call = CallSessionRepository::find_by_id(&state.db, call_id).await?;
+    
+    // Verify the call belongs to this elder
+    if call.elder_id != elder_id {
+        return Err(crate::domain::DomainError::NotFound("Call not found".to_string()).into());
+    }
+    
+    Ok(Json(CallLogResponse::from(call)))
+}
+
 /// List ride logs for an elder
 pub async fn list_ride_logs(
     State(state): State<AppState>,

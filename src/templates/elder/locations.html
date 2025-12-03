@@ -34,22 +34,36 @@
             </template>
             <div x-show="!loading && locations.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
                 <template x-for="loc in locations" :key="loc.id">
-                    <div class="card">
-                        <div class="flex justify-between items-start mb-3">
-                            <div>
-                                <h3 class="font-semibold text-stone-100" x-text="loc.name"></h3>
-                                <span x-show="loc.is_home" class="badge badge-primary text-xs mt-1">Casa (Recogida)</span>
+                    <div class="card p-0 overflow-hidden">
+                        <!-- Map Preview -->
+                        <template x-if="loc.latitude && loc.longitude && googleMapsApiKey">
+                            <div class="h-32 bg-surface-800">
+                                <img 
+                                    :src="'https://maps.googleapis.com/maps/api/staticmap?center=' + loc.latitude + ',' + loc.longitude + '&zoom=15&size=400x128&scale=2&markers=color:orange%7C' + loc.latitude + ',' + loc.longitude + '&style=feature:all|element:geometry|color:0x242f3e&style=feature:all|element:labels.text.stroke|color:0x242f3e&style=feature:all|element:labels.text.fill|color:0x746855&style=feature:road|element:geometry|color:0x38414e&style=feature:water|element:geometry|color:0x17263c&key=' + googleMapsApiKey"
+                                    class="w-full h-full object-cover"
+                                    alt="Mapa"
+                                >
                             </div>
-                            <button @click="deleteLocation(loc.id)" class="btn btn-ghost btn-sm text-red-400">×</button>
-                        </div>
-                        <p class="text-sm text-stone-400 mb-2" x-text="loc.address"></p>
-                        <p x-show="loc.extra_instructions" class="text-xs text-stone-500 mb-3" x-text="loc.extra_instructions"></p>
-                        <div class="flex items-center gap-2 text-xs text-stone-500">
-                            <template x-if="loc.latitude && loc.longitude">
-                                <span class="text-emerald-400">✓ Coordenadas configuradas</span>
-                            </template>
+                        </template>
+                        <template x-if="!loc.latitude || !loc.longitude || !googleMapsApiKey">
+                            <div class="h-32 bg-surface-800 flex items-center justify-center">
+                                <span class="text-stone-600 text-4xl">📍</span>
+                            </div>
+                        </template>
+                        
+                        <!-- Card Content -->
+                        <div class="p-4">
+                            <div class="flex justify-between items-start mb-2">
+                                <div>
+                                    <h3 class="font-semibold text-stone-100" x-text="loc.name"></h3>
+                                    <span x-show="loc.is_home" class="badge badge-primary text-xs mt-1">Casa (Recogida)</span>
+                                </div>
+                                <button @click="deleteLocation(loc.id)" class="btn btn-ghost btn-sm text-red-400">×</button>
+                            </div>
+                            <p class="text-sm text-stone-400 mb-2" x-text="loc.address"></p>
+                            <p x-show="loc.extra_instructions" class="text-xs text-stone-500" x-text="loc.extra_instructions"></p>
                             <template x-if="!loc.latitude || !loc.longitude">
-                                <span class="text-yellow-400">⚠ Sin coordenadas</span>
+                                <p class="text-xs text-yellow-400 mt-2">⚠ Sin coordenadas - edita para agregar</p>
                             </template>
                         </div>
                     </div>

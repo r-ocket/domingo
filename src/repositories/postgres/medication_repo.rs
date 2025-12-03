@@ -48,11 +48,11 @@ impl MedicationRepository {
             let schedule_row = client
                 .query_one(
                     r#"
-                    INSERT INTO medication_schedules (id, medication_id, time_of_day, days_pattern, created_at)
+                    INSERT INTO medication_schedules (id, medication_id, time_of_day, days_of_week, created_at)
                     VALUES ($1, $2, $3, $4, $5)
-                    RETURNING id, medication_id, time_of_day, days_pattern, created_at
+                    RETURNING id, medication_id, time_of_day, days_of_week, days_pattern, created_at
                     "#,
-                    &[&schedule_id, &id, &time, &"daily", &now],
+                    &[&schedule_id, &id, &time, &req.days_of_week, &now],
                 )
                 .await?;
             
@@ -95,7 +95,7 @@ impl MedicationRepository {
         let rows = client
             .query(
                 r#"
-                SELECT id, medication_id, time_of_day, days_pattern, created_at
+                SELECT id, medication_id, time_of_day, days_of_week, days_pattern, created_at
                 FROM medication_schedules 
                 WHERE medication_id = $1
                 ORDER BY time_of_day
@@ -183,7 +183,7 @@ impl MedicationRepository {
             .query(
                 r#"
                 SELECT m.id, m.elder_id, m.name, m.dosage, m.instructions, m.created_at, m.updated_at,
-                       s.id as schedule_id, s.medication_id, s.time_of_day, s.days_pattern, s.created_at as schedule_created_at
+                       s.id as schedule_id, s.medication_id, s.time_of_day, s.days_of_week, s.days_pattern, s.created_at as schedule_created_at
                 FROM medications m
                 JOIN medication_schedules s ON m.id = s.medication_id
                 WHERE m.elder_id = $1
@@ -209,7 +209,8 @@ impl MedicationRepository {
                     id: row.get("schedule_id"),
                     medication_id: row.get("medication_id"),
                     time_of_day: row.get("time_of_day"),
-                    days_pattern: row.get("days_pattern"),
+                    days_of_week: row.get("days_of_week"),
+                    days_pattern: row.try_get("days_pattern").ok(),
                     created_at: row.get("schedule_created_at"),
                 };
                 (medication, schedule)
@@ -247,38 +248,61 @@ impl MedicationRepository {
         
         let medication = row_to_medication(&row);
         
-        // Update schedules if provided
-        if let Some(schedule_times) = &req.schedule_times {
-            // Delete existing schedules
-            client
-                .execute(
-                    "DELETE FROM medication_schedules WHERE medication_id = $1",
-                    &[&id],
-                )
-                .await?;
-            
-            // Create new schedules
-            let mut schedules = Vec::new();
-            for time_str in schedule_times {
-                let time = NaiveTime::parse_from_str(time_str, "%H:%M")
-                    .map_err(|_| DomainError::Validation(format!("Invalid time format: {}", time_str)))?;
-                
-                let schedule_id = Uuid::new_v4();
-                let schedule_row = client
-                    .query_one(
-                        r#"
-                        INSERT INTO medication_schedules (id, medication_id, time_of_day, days_pattern, created_at)
-                        VALUES ($1, $2, $3, $4, $5)
-                        RETURNING id, medication_id, time_of_day, days_pattern, created_at
-                        "#,
-                        &[&schedule_id, &id, &time, &"daily", &now],
+        // Update schedules if times or days are provided
+        if req.schedule_times.is_some() || req.days_of_week.is_some() {
+            // If only days are being updated, update existing schedules
+            if req.schedule_times.is_none() && req.days_of_week.is_some() {
+                let days = req.days_of_week.unwrap();
+                client
+                    .execute(
+                        "UPDATE medication_schedules SET days_of_week = $2 WHERE medication_id = $1",
+                        &[&id, &days],
                     )
                     .await?;
                 
-                schedules.push(row_to_schedule(&schedule_row));
+                let schedules = Self::get_schedules(pool, id).await?;
+                return Ok(MedicationWithSchedule { medication, schedules });
             }
             
-            return Ok(MedicationWithSchedule { medication, schedules });
+            // If times are provided, recreate schedules
+            if let Some(schedule_times) = &req.schedule_times {
+                // Delete existing schedules
+                client
+                    .execute(
+                        "DELETE FROM medication_schedules WHERE medication_id = $1",
+                        &[&id],
+                    )
+                    .await?;
+                
+                // Get days_of_week: from request, or from existing schedules, or default to all days
+                let existing_schedules = Self::get_schedules(pool, id).await.ok();
+                let days_of_week = req.days_of_week
+                    .or_else(|| existing_schedules.as_ref().and_then(|s| s.first().map(|s| s.days_of_week)))
+                    .unwrap_or(127);
+                
+                // Create new schedules
+                let mut schedules = Vec::new();
+                for time_str in schedule_times {
+                    let time = NaiveTime::parse_from_str(time_str, "%H:%M")
+                        .map_err(|_| DomainError::Validation(format!("Invalid time format: {}", time_str)))?;
+                    
+                    let schedule_id = Uuid::new_v4();
+                    let schedule_row = client
+                        .query_one(
+                            r#"
+                            INSERT INTO medication_schedules (id, medication_id, time_of_day, days_of_week, created_at)
+                            VALUES ($1, $2, $3, $4, $5)
+                            RETURNING id, medication_id, time_of_day, days_of_week, days_pattern, created_at
+                            "#,
+                            &[&schedule_id, &id, &time, &days_of_week, &now],
+                        )
+                        .await?;
+                    
+                    schedules.push(row_to_schedule(&schedule_row));
+                }
+                
+                return Ok(MedicationWithSchedule { medication, schedules });
+            }
         }
         
         let schedules = Self::get_schedules(pool, id).await?;
@@ -341,7 +365,8 @@ fn row_to_schedule(row: &tokio_postgres::Row) -> MedicationSchedule {
         id: row.get("id"),
         medication_id: row.get("medication_id"),
         time_of_day: row.get("time_of_day"),
-        days_pattern: row.get("days_pattern"),
+        days_of_week: row.get("days_of_week"),
+        days_pattern: row.try_get("days_pattern").ok(),
         created_at: row.get("created_at"),
     }
 }

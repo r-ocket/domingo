@@ -131,7 +131,8 @@ pub struct MedicationResponse {
 pub struct ScheduleResponse {
     pub id: String,
     pub time_of_day: String,
-    pub days_pattern: String,
+    pub days_of_week: i32,
+    pub days_description: String,
 }
 
 impl From<crate::domain::MedicationWithSchedule> for MedicationResponse {
@@ -142,10 +143,14 @@ impl From<crate::domain::MedicationWithSchedule> for MedicationResponse {
             name: m.medication.name,
             dosage: m.medication.dosage,
             instructions: m.medication.instructions,
-            schedules: m.schedules.into_iter().map(|s| ScheduleResponse {
-                id: s.id.to_string(),
-                time_of_day: s.time_of_day.format("%H:%M").to_string(),
-                days_pattern: s.days_pattern,
+            schedules: m.schedules.into_iter().map(|s| {
+                let days_description = s.days_description();
+                ScheduleResponse {
+                    id: s.id.to_string(),
+                    time_of_day: s.time_of_day.format("%H:%M").to_string(),
+                    days_of_week: s.days_of_week,
+                    days_description,
+                }
             }).collect(),
             created_at: m.medication.created_at.to_rfc3339(),
             updated_at: m.medication.updated_at.to_rfc3339(),

@@ -41,11 +41,21 @@
                         </div>
                         <p class="text-sm text-stone-400 mb-2" x-text="med.dosage"></p>
                         <p x-show="med.instructions" class="text-xs text-stone-500 mb-3" x-text="med.instructions"></p>
-                        <div class="flex flex-wrap gap-1">
-                            <template x-for="time in (med.schedule_times || [])" :key="time">
-                                <span class="badge badge-primary text-xs" x-text="time"></span>
+                        
+                        <!-- Schedule Times -->
+                        <div class="flex flex-wrap gap-1 mb-2">
+                            <template x-for="sched in (med.schedules || [])" :key="sched.id">
+                                <span class="badge badge-primary text-xs" x-text="sched.time_of_day"></span>
                             </template>
                         </div>
+                        
+                        <!-- Days of Week -->
+                        <template x-if="med.schedules && med.schedules.length > 0">
+                            <div class="text-xs text-stone-500 flex items-center gap-2">
+                                <span>📅</span>
+                                <span x-text="med.schedules[0].days_description"></span>
+                            </div>
+                        </template>
                     </div>
                 </template>
             </div>
@@ -71,8 +81,29 @@
                             <textarea x-model="form.instructions" rows="2" placeholder="ej. Tomar con comida" class="form-textarea"></textarea>
                             </div>
                         <div class="form-group">
+                            <label class="form-label">Días de la Semana</label>
+                            <p class="form-hint">¿Qué días se debe tomar?</p>
+                            <div class="flex gap-1 mt-2">
+                                <template x-for="(day, idx) in dayOptions" :key="day.bit">
+                                    <button 
+                                        type="button" 
+                                        @click="toggleDay(day.bit)"
+                                        :class="isDaySelected(day.bit) ? 'bg-primary-500 text-white' : 'bg-surface-800 text-stone-400 hover:bg-surface-700'"
+                                        class="w-10 h-10 rounded-full text-sm font-medium transition-colors"
+                                        x-text="day.label"
+                                    ></button>
+                                </template>
+                            </div>
+                            <div class="flex gap-2 mt-2">
+                                <button type="button" @click="daysOfWeek = 127" class="btn btn-ghost btn-sm text-xs">Todos</button>
+                                <button type="button" @click="daysOfWeek = 31" class="btn btn-ghost btn-sm text-xs">L-V</button>
+                                <button type="button" @click="daysOfWeek = 96" class="btn btn-ghost btn-sm text-xs">Fines</button>
+                            </div>
+                        </div>
+                        
+                        <div class="form-group">
                             <label class="form-label">Horarios</label>
-                            <p class="form-hint">¿Cuándo se deben enviar los recordatorios?</p>
+                            <p class="form-hint">¿A qué horas se debe tomar?</p>
                             <div class="space-y-2 mt-2">
                                 <template x-for="(time, idx) in scheduleTimes" :key="idx">
                                         <div class="flex gap-2">
@@ -118,10 +149,38 @@ function medicationsPage(elderId) {
         saving: false,
         form: { name: '', dosage: '', instructions: '' },
         scheduleTimes: ['08:00'],
+        daysOfWeek: 127, // All days by default
+        
+        // Day options: Mon=1, Tue=2, Wed=4, Thu=8, Fri=16, Sat=32, Sun=64
+        dayOptions: [
+            { bit: 1, label: 'L' },   // Monday
+            { bit: 2, label: 'M' },   // Tuesday
+            { bit: 4, label: 'X' },   // Wednesday
+            { bit: 8, label: 'J' },   // Thursday
+            { bit: 16, label: 'V' },  // Friday
+            { bit: 32, label: 'S' },  // Saturday
+            { bit: 64, label: 'D' },  // Sunday
+        ],
         
         async init() {
             if (!this.elderId) return;
             await this.loadMedications();
+        },
+        
+        isDaySelected(bit) {
+            return (this.daysOfWeek & bit) !== 0;
+        },
+        
+        toggleDay(bit) {
+            if (this.isDaySelected(bit)) {
+                this.daysOfWeek &= ~bit;
+            } else {
+                this.daysOfWeek |= bit;
+            }
+            // Ensure at least one day is selected
+            if (this.daysOfWeek === 0) {
+                this.daysOfWeek = bit;
+            }
         },
         
         async loadMedications() {
@@ -143,7 +202,8 @@ function medicationsPage(elderId) {
             try {
                 const payload = {
                     ...this.form,
-                    schedule_times: this.scheduleTimes
+                    schedule_times: this.scheduleTimes,
+                    days_of_week: this.daysOfWeek
                 };
                 const res = await fetch(`/api/elder/${this.elderId}/medications`, {
                     method: 'POST',
@@ -154,6 +214,7 @@ function medicationsPage(elderId) {
                     this.showModal = false;
                     this.form = { name: '', dosage: '', instructions: '' };
                     this.scheduleTimes = ['08:00'];
+                    this.daysOfWeek = 127;
                     await this.loadMedications();
                 }
             } catch (e) {
