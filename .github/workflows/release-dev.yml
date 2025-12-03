@@ -7,7 +7,7 @@ on:
 env:
   CARGO_TERM_COLOR: always
   EC2_HOST_DEV: ${{ vars.EC2_HOST_DEV }}
-  EC2_USERNAME_DEV: ${{ vars.EC2_USERNAME_DE }}
+  EC2_USERNAME_DEV: ${{ vars.EC2_USERNAME_DEV }}
   BINARY_NAME: domingo
   DOMINGO_HOME: /opt/domingo
 
