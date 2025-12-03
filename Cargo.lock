@@ -39,46 +39,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "asistente-domingo"
-version = "0.1.0"
-dependencies = [
- "anyhow",
- "argon2",
- "axum",
- "axum-extra",
- "base64",
- "chrono",
- "dashmap",
- "deadpool-postgres",
- "dotenvy",
- "futures-util",
- "hex",
- "hmac",
- "http",
- "postgres-types",
- "rand 0.8.5",
- "refinery",
- "reqwest",
- "serde",
- "serde_json",
- "sha2",
- "tera",
- "thiserror",
- "tokio",
- "tokio-postgres",
- "tokio-stream",
- "tokio-test",
- "tokio-tungstenite 0.21.0",
- "tower 0.4.13",
- "tower-http 0.5.2",
- "tracing",
- "tracing-subscriber",
- "url",
- "urlencoding",
- "uuid",
-]
-
-[[package]]
 name = "async-stream"
 version = "0.3.6"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -495,6 +455,46 @@ dependencies = [
  "proc-macro2",
  "quote",
  "syn",
+]
+
+[[package]]
+name = "domingo"
+version = "0.1.0"
+dependencies = [
+ "anyhow",
+ "argon2",
+ "axum",
+ "axum-extra",
+ "base64",
+ "chrono",
+ "dashmap",
+ "deadpool-postgres",
+ "dotenvy",
+ "futures-util",
+ "hex",
+ "hmac",
+ "http",
+ "postgres-types",
+ "rand 0.8.5",
+ "refinery",
+ "reqwest",
+ "serde",
+ "serde_json",
+ "sha2",
+ "tera",
+ "thiserror",
+ "tokio",
+ "tokio-postgres",
+ "tokio-stream",
+ "tokio-test",
+ "tokio-tungstenite 0.21.0",
+ "tower 0.4.13",
+ "tower-http 0.5.2",
+ "tracing",
+ "tracing-subscriber",
+ "url",
+ "urlencoding",
+ "uuid",
 ]
 
 [[package]]

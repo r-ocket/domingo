@@ -1,9 +1,9 @@
 [package]
-name = "asistente-domingo"
+name = "domingo"
 version = "0.1.0"
 edition = "2021"
-description = "Asistente Domingo - Voice AI Assistant for Elderly Care"
-authors = ["Asistente Domingo Team"]
+description = "Domingo - AI Assistant for Elderly Care"
+authors = ["Domingo Dev Team"]
 
 [dependencies]
 # Web framework
