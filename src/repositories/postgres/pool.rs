@@ -1,13 +1,28 @@
 //! Database connection pool
 
 use deadpool_postgres::{Config, Pool, Runtime};
-use tokio_postgres::NoTls;
+use rustls::ClientConfig;
+use tokio_postgres_rustls::MakeRustlsConnect;
 
 /// PostgreSQL connection pool wrapper
 #[derive(Clone)]
 pub struct PostgresPool {
     pool: Pool,
     database_url: String,
+    tls_connector: MakeRustlsConnect,
+}
+
+/// Create a TLS connector for PostgreSQL connections
+fn create_tls_connector() -> MakeRustlsConnect {
+    let root_store = rustls::RootCertStore::from_iter(
+        webpki_roots::TLS_SERVER_ROOTS.iter().cloned()
+    );
+    
+    let config = ClientConfig::builder()
+        .with_root_certificates(root_store)
+        .with_no_client_auth();
+    
+    MakeRustlsConnect::new(config)
 }
 
 impl PostgresPool {
@@ -28,17 +43,19 @@ impl PostgresPool {
         cfg.password = url.password().map(String::from);
         cfg.dbname = Some(url.path().trim_start_matches('/').to_string());
         
-        let pool = cfg.create_pool(Some(Runtime::Tokio1), NoTls)?;
+        let tls_connector = create_tls_connector();
+        let pool = cfg.create_pool(Some(Runtime::Tokio1), tls_connector.clone())?;
         
         // Test the connection
         let client = pool.get().await?;
         client.simple_query("SELECT 1").await?;
         
-        tracing::info!("Database connection pool initialized");
+        tracing::info!("Database connection pool initialized with SSL");
         
         Ok(Self { 
             pool,
             database_url: database_url.to_string(),
+            tls_connector,
         })
     }
     
@@ -48,7 +65,7 @@ impl PostgresPool {
     /// requires ownership of the client.
     pub async fn run_migrations(&self) -> anyhow::Result<()> {
         // Create a dedicated connection for migrations
-        let (mut client, connection) = tokio_postgres::connect(&self.database_url, NoTls).await?;
+        let (mut client, connection) = tokio_postgres::connect(&self.database_url, self.tls_connector.clone()).await?;
         
         // Spawn the connection handler
         tokio::spawn(async move {
