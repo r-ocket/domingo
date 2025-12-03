@@ -22,8 +22,7 @@ deadpool-postgres = { version = "0.12", features = ["serde"] }
 postgres-types = { version = "0.2", features = ["derive"] }
 refinery = { version = "0.8", features = ["tokio-postgres"] }
 tokio-postgres-rustls = "0.12"
-rustls = "0.23"
-webpki-roots = "0.26"
+rustls = { version = "0.23", features = ["std"] }
 
 # Serialization
 serde = { version = "1", features = ["derive"] }
