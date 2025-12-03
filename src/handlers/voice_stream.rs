@@ -440,6 +440,7 @@ async fn handle_elevenlabs_stream(
     // Clone state for ElevenLabs handler
     let state_clone = state.clone();
     let call_sid_for_eleven = call_sid.to_string();
+    let elder_id_for_eleven = elder.id;
     let tool_ctx_clone = tool_ctx.clone();
     
     // ElevenLabs event handler
@@ -457,6 +458,20 @@ async fn handle_elevenlabs_stream(
                 }
                 event = elevenlabs_session.recv_event() => {
                     match event {
+                        Some(ElevenLabsServerMessage::ConversationInitiationMetadata { conversation_id }) => {
+                            // Register conversation_id for MCP context lookup
+                            tracing::info!(
+                                conversation_id = %conversation_id,
+                                call_sid = %call_sid_for_eleven,
+                                "ElevenLabs conversation started"
+                            );
+                            state_clone.call_state.register_elevenlabs_conversation(
+                                &conversation_id,
+                                &call_sid_for_eleven,
+                                elder_id_for_eleven,
+                                session_id,
+                            );
+                        }
                         Some(ElevenLabsServerMessage::Audio { audio }) => {
                             let _ = twilio_tx_clone.send(audio).await;
                         }

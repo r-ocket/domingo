@@ -26,6 +26,8 @@ pub struct Config {
     /// ElevenLabs Conversational AI Agent ID (create in ElevenLabs dashboard)
     /// The agent should be configured with Spanish language, Claude Sonnet 4.5, and Juan voice
     pub elevenlabs_agent_id: Option<String>,
+    /// Secret token for ElevenLabs MCP requests (configure same value in ElevenLabs dashboard)
+    pub mcp_secret_token: Option<String>,
     
     // Uber
     pub uber_client_id: String,
@@ -73,6 +75,7 @@ impl Config {
             // ElevenLabs
             elevenlabs_api_key: env::var("ELEVENLABS_API_KEY").unwrap_or_default(),
             elevenlabs_agent_id: env::var("ELEVENLABS_AGENT_ID").ok(),
+            mcp_secret_token: env::var("MCP_SECRET_TOKEN").ok(),
             
             // Uber
             uber_client_id: env::var("UBER_CLIENT_ID").unwrap_or_default(),

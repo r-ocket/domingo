@@ -3,16 +3,15 @@
 //! Exposes the MCP server via HTTP POST for tool discovery and execution.
 //! This allows both OpenAI Realtime and ElevenLabs to call our tools.
 //!
-//! ## Session-Scoped Endpoints
+//! ## Endpoints
 //!
-//! For external AI providers (ElevenLabs), we provide session-scoped URLs:
-//! `POST /api/mcp/session/{token}` - JSON-RPC endpoint with context bound to the session
-//!
-//! The token is generated when a call starts and maps to the elder context.
+//! - `POST /api/mcp/elevenlabs` - For ElevenLabs with secret token auth
+//! - `POST /api/mcp/session/{token}` - Session-scoped endpoint
+//! - `POST /api/mcp` - JSON-RPC with context in body
 
 use axum::{
     extract::{Json, Path, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     response::IntoResponse,
 };
 use serde::{Deserialize, Serialize};
@@ -110,6 +109,74 @@ pub async fn handle_session_mcp_request(
     };
     
     let response = server.handle_request(request, Some(&tool_ctx)).await;
+    
+    (StatusCode::OK, Json(serde_json::to_value(response).unwrap_or_default()))
+}
+
+/// ElevenLabs MCP request with conversation_id
+/// 
+/// ElevenLabs includes conversation_id in MCP requests.
+/// We look up the call context by conversation_id.
+/// Auth via secret token in Authorization header.
+#[derive(Debug, Deserialize)]
+pub struct ElevenLabsMcpRequest {
+    #[serde(flatten)]
+    pub request: JsonRpcRequest,
+    /// ElevenLabs conversation ID (passed in MCP metadata)
+    pub conversation_id: Option<String>,
+}
+
+#[tracing::instrument(skip(state, headers, request))]
+pub async fn handle_elevenlabs_mcp_request(
+    State(state): State<AppState>,
+    headers: HeaderMap,
+    Json(request): Json<ElevenLabsMcpRequest>,
+) -> impl IntoResponse {
+    // Verify secret token
+    let auth_header = headers
+        .get("authorization")
+        .and_then(|v| v.to_str().ok())
+        .unwrap_or("");
+    
+    let expected_token = state.config.mcp_secret_token.as_deref().unwrap_or("");
+    
+    // Support both "Bearer <token>" and just "<token>"
+    let provided_token = auth_header.strip_prefix("Bearer ").unwrap_or(auth_header);
+    
+    if expected_token.is_empty() || provided_token != expected_token {
+        tracing::warn!("Invalid MCP secret token from ElevenLabs");
+        return (
+            StatusCode::UNAUTHORIZED,
+            Json(serde_json::json!({
+                "jsonrpc": "2.0",
+                "id": null,
+                "error": {
+                    "code": -32001,
+                    "message": "Invalid secret token"
+                }
+            })),
+        );
+    }
+    
+    // Look up context by conversation_id
+    let conversation_id = request.conversation_id.as_deref().unwrap_or("");
+    let session_ctx = state.call_state.get_elevenlabs_context(conversation_id);
+    
+    let mut server = McpServer::new();
+    
+    // If we have context, use it; otherwise handle without context (for tools/list etc)
+    let tool_ctx = session_ctx.map(|ctx| {
+        ToolContext {
+            db: state.db.clone(),
+            twilio: state.twilio.clone(),
+            uber: state.uber.clone(),
+            elder_id: ctx.elder_id,
+            session_id: ctx.session_id,
+            call_sid: ctx.call_sid,
+        }
+    });
+    
+    let response = server.handle_request(request.request, tool_ctx.as_ref()).await;
     
     (StatusCode::OK, Json(serde_json::to_value(response).unwrap_or_default()))
 }

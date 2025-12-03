@@ -131,6 +131,15 @@ pub struct McpSessionContext {
     pub call_sid: String,
 }
 
+/// Context lookup by ElevenLabs conversation ID
+#[derive(Debug, Clone)]
+pub struct ElevenLabsConversation {
+    pub conversation_id: String,
+    pub elder_id: Uuid,
+    pub session_id: Uuid,
+    pub call_sid: String,
+}
+
 /// In-memory store for active calls
 #[derive(Debug)]
 pub struct CallStateStore {
@@ -145,6 +154,10 @@ pub struct CallStateStore {
     mcp_sessions: DashMap<String, McpSessionContext>,
     /// Reverse lookup: call_sid → MCP token
     call_to_mcp_token: DashMap<String, String>,
+    /// ElevenLabs conversation_id → call context
+    elevenlabs_conversations: DashMap<String, ElevenLabsConversation>,
+    /// Reverse lookup: call_sid → ElevenLabs conversation_id
+    call_to_elevenlabs: DashMap<String, String>,
 }
 
 impl Default for CallStateStore {
@@ -163,6 +176,8 @@ impl CallStateStore {
             call_txs: DashMap::new(),
             mcp_sessions: DashMap::new(),
             call_to_mcp_token: DashMap::new(),
+            elevenlabs_conversations: DashMap::new(),
+            call_to_elevenlabs: DashMap::new(),
         }
     }
 
@@ -392,6 +407,10 @@ impl CallStateStore {
             if let Some((_, token)) = self.call_to_mcp_token.remove(&call_sid) {
                 self.mcp_sessions.remove(&token);
             }
+            // Clean up ElevenLabs conversation
+            if let Some((_, conv_id)) = self.call_to_elevenlabs.remove(&call_sid) {
+                self.elevenlabs_conversations.remove(&conv_id);
+            }
         }
     }
 
@@ -450,6 +469,56 @@ impl CallStateStore {
         if let Some((_, token)) = self.call_to_mcp_token.remove(call_sid) {
             self.mcp_sessions.remove(&token);
             tracing::debug!(call_sid = %call_sid, "Removed MCP session");
+        }
+    }
+
+    // ========================================================================
+    // ElevenLabs Conversation Management
+    // ========================================================================
+
+    /// Register an ElevenLabs conversation for a call
+    /// Called when ElevenLabs returns a conversation_id after connection
+    pub fn register_elevenlabs_conversation(
+        &self,
+        conversation_id: &str,
+        call_sid: &str,
+        elder_id: Uuid,
+        session_id: Uuid,
+    ) {
+        let conv = ElevenLabsConversation {
+            conversation_id: conversation_id.to_string(),
+            elder_id,
+            session_id,
+            call_sid: call_sid.to_string(),
+        };
+        
+        self.elevenlabs_conversations.insert(conversation_id.to_string(), conv);
+        self.call_to_elevenlabs.insert(call_sid.to_string(), conversation_id.to_string());
+        
+        tracing::info!(
+            conversation_id = %conversation_id,
+            call_sid = %call_sid,
+            elder_id = %elder_id,
+            "Registered ElevenLabs conversation"
+        );
+    }
+
+    /// Get call context by ElevenLabs conversation_id
+    pub fn get_elevenlabs_context(&self, conversation_id: &str) -> Option<McpSessionContext> {
+        self.elevenlabs_conversations.get(conversation_id).map(|conv| {
+            McpSessionContext {
+                elder_id: conv.elder_id,
+                session_id: conv.session_id,
+                call_sid: conv.call_sid.clone(),
+            }
+        })
+    }
+
+    /// Remove ElevenLabs conversation for a call
+    pub fn remove_elevenlabs_conversation(&self, call_sid: &str) {
+        if let Some((_, conv_id)) = self.call_to_elevenlabs.remove(call_sid) {
+            self.elevenlabs_conversations.remove(&conv_id);
+            tracing::debug!(call_sid = %call_sid, "Removed ElevenLabs conversation");
         }
     }
 }

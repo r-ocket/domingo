@@ -122,6 +122,7 @@ pub fn api_routes() -> Router<AppState> {
         
         // MCP (Model Context Protocol) routes
         .route("/api/mcp", post(mcp_handler::handle_mcp_request))
+        .route("/api/mcp/elevenlabs", post(mcp_handler::handle_elevenlabs_mcp_request))
         .route("/api/mcp/session/:token", post(mcp_handler::handle_session_mcp_request))
         .route("/api/mcp/tools", get(mcp_handler::list_tools))
         .route("/api/mcp/resources", get(mcp_handler::list_resources))
