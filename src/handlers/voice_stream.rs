@@ -132,6 +132,15 @@ async fn handle_media_stream(
             tokio::select! {
                 // Handle incoming audio from Twilio -> forward to OpenAI
                 Some(audio) = openai_audio_rx.recv() => {
+                    // Check for special greeting trigger signal
+                    if audio == "__GREETING__" {
+                        tracing::info!("Triggering initial greeting");
+                        if let Err(e) = openai_session.trigger_initial_greeting().await {
+                            tracing::error!("Failed to trigger greeting: {}", e);
+                        }
+                        continue;
+                    }
+                    
                     if let Err(e) = openai_session.send_audio(&audio).await {
                         tracing::error!("Failed to send audio to OpenAI: {}", e);
                         break;
@@ -236,6 +245,16 @@ async fn handle_media_stream(
                         TwilioStreamMessage::Start { stream_sid: sid, start } => {
                             *stream_sid_clone.write().await = sid;
                             tracing::info!("Stream started for call {}", start.call_sid);
+                            
+                            // Trigger initial greeting after a short delay
+                            // This gives the caller a moment after the ring stops
+                            let greeting_tx = openai_audio_tx.clone();
+                            tokio::spawn(async move {
+                                // Wait 500ms before starting the greeting
+                                tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
+                                // Send empty signal to trigger greeting (handled in OpenAI task)
+                                let _ = greeting_tx.send("__GREETING__".to_string()).await;
+                            });
                         }
                         TwilioStreamMessage::Media { media, .. } => {
                             // Forward audio to OpenAI (g711_ulaw format - no conversion needed)

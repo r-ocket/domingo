@@ -120,9 +120,9 @@ impl RealtimeSession {
                 // Support both text and audio modalities
                 modalities: vec!["text".to_string(), "audio".to_string()],
                 instructions: system_prompt.to_string(),
-                // "marin" voice - newest Spanish-optimized voice
-                // Natural and warm, designed specifically for Spanish speakers
-                voice: "marin".to_string(),
+                // "coral" voice - warm and natural sounding
+                // Good for conversational Spanish
+                voice: "coral".to_string(),
                 // g711_ulaw format for Twilio telephony compatibility
                 // Note: For WebRTC/browser, prefer "pcm16" or "opus" for lower latency
                 input_audio_format: "g711_ulaw".to_string(),
@@ -177,6 +177,18 @@ impl RealtimeSession {
     /// Receive the next event from the API
     pub async fn recv_event(&mut self) -> Option<RealtimeServerEvent> {
         self.inbound_rx.recv().await
+    }
+    
+    /// Trigger the initial greeting response
+    /// Call this after a short delay to let the caller hear the ring tone end
+    pub async fn trigger_initial_greeting(&self) -> Result<(), OpenAIError> {
+        let event = RealtimeClientEvent::ResponseCreate {
+            response: ResponseConfig {
+                modalities: vec!["text".to_string(), "audio".to_string()],
+                instructions: None,
+            },
+        };
+        self.send_event(event).await
     }
     
     /// Send audio input
