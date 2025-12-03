@@ -73,6 +73,7 @@ impl RideService {
         
         Ok(RideInfo {
             status: updated_ride.status,
+            pickup_name: pickup.name,
             destination_name: destination.name,
             driver_name: updated_ride.driver_name,
             vehicle_description,
@@ -80,27 +81,114 @@ impl RideService {
         })
     }
     
-    /// Book a ride by location name (for AI tool)
+    /// Book a ride by location name (for AI tool) - defaults to home pickup
     pub async fn book_ride_by_name(
         pool: &PostgresPool,
         uber: &Arc<UberClient>,
         elder_id: Uuid,
         location_name: &str,
     ) -> DomainResult<RideInfo> {
-        // Search for the location
-        let locations = LocationRepository::find_by_name(pool, elder_id, location_name).await?;
+        Self::book_ride_flexible(pool, uber, elder_id, None, location_name).await
+    }
+    
+    /// Book a ride with flexible pickup and dropoff locations
+    /// If from_location is None, uses home as pickup
+    pub async fn book_ride_flexible(
+        pool: &PostgresPool,
+        uber: &Arc<UberClient>,
+        elder_id: Uuid,
+        from_location: Option<&str>,
+        to_location: &str,
+    ) -> DomainResult<RideInfo> {
+        // Get pickup location (home by default, or specified location)
+        let pickup = match from_location {
+            Some(name) => {
+                let locations = LocationRepository::find_by_name(pool, elder_id, name).await?;
+                if locations.is_empty() {
+                    return Err(DomainError::NotFound(format!(
+                        "No se encontró la ubicación de recogida '{}'",
+                        name
+                    )));
+                }
+                locations.into_iter().next().unwrap()
+            }
+            None => {
+                LocationRepository::find_home(pool, elder_id)
+                    .await?
+                    .ok_or_else(|| DomainError::NotFound(
+                        "No hay dirección de casa configurada. Por favor pide a tu cuidador que configure tu dirección de casa primero.".to_string()
+                    ))?
+            }
+        };
         
-        if locations.is_empty() {
+        // Get destination location
+        let destinations = LocationRepository::find_by_name(pool, elder_id, to_location).await?;
+        if destinations.is_empty() {
             return Err(DomainError::NotFound(format!(
-                "No location found matching '{}'",
-                location_name
+                "No se encontró la ubicación destino '{}'. Las ubicaciones disponibles están guardadas por tu cuidador.",
+                to_location
             )));
         }
+        let destination = &destinations[0];
         
-        // Use the first match
-        let location = &locations[0];
+        // Validate coordinates
+        let pickup_lat = pickup.latitude.ok_or_else(|| DomainError::Validation(
+            format!("La ubicación '{}' no tiene coordenadas configuradas. Pide a tu cuidador que la actualice en el mapa.", pickup.name)
+        ))?;
+        let pickup_lng = pickup.longitude.ok_or_else(|| DomainError::Validation(
+            format!("La ubicación '{}' no tiene coordenadas configuradas.", pickup.name)
+        ))?;
+        let dropoff_lat = destination.latitude.ok_or_else(|| DomainError::Validation(
+            format!("La ubicación '{}' no tiene coordenadas configuradas. Pide a tu cuidador que la actualice en el mapa.", destination.name)
+        ))?;
+        let dropoff_lng = destination.longitude.ok_or_else(|| DomainError::Validation(
+            format!("La ubicación '{}' no tiene coordenadas configuradas.", destination.name)
+        ))?;
         
-        Self::book_ride(pool, uber, elder_id, location.id).await
+        // Request ride from Uber
+        let uber_response = uber
+            .request_ride(pickup_lat, pickup_lng, dropoff_lat, dropoff_lng, "")
+            .await
+            .map_err(|e| DomainError::ExternalService(format!("Error de Uber: {}", e)))?;
+        
+        // Create ride request record
+        let create_req = CreateRideRequest {
+            elder_id,
+            location_id: destination.id,
+            pickup_address: pickup.address.clone(),
+            dropoff_address: destination.address.clone(),
+        };
+        
+        let ride = RideRequestRepository::create(pool, &create_req).await?;
+        
+        // Update with Uber response
+        let update_req = UpdateRideRequest {
+            uber_ride_id: Some(uber_response.request_id.clone()),
+            status: Some(uber_response.to_domain_status()),
+            driver_name: uber_response.driver.as_ref().map(|d| d.name.clone()),
+            driver_phone: uber_response.driver.as_ref().map(|d| d.phone_number.clone()),
+            vehicle_make: uber_response.vehicle.as_ref().map(|v| v.make.clone()),
+            vehicle_model: uber_response.vehicle.as_ref().map(|v| v.model.clone()),
+            vehicle_license: uber_response.vehicle.as_ref().map(|v| v.license_plate.clone()),
+            eta_minutes: uber_response.eta,
+            fare_estimate: None,
+            fare_actual: None,
+            completed_at: None,
+            metadata: None,
+        };
+        
+        let updated_ride = RideRequestRepository::update(pool, ride.id, &update_req).await?;
+        
+        let vehicle_description = Self::format_vehicle(&updated_ride);
+        
+        Ok(RideInfo {
+            status: updated_ride.status,
+            pickup_name: pickup.name,
+            destination_name: destination.name.clone(),
+            driver_name: updated_ride.driver_name,
+            vehicle_description,
+            eta_minutes: updated_ride.eta_minutes,
+        })
     }
     
     /// Get active ride for an elder

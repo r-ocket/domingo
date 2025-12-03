@@ -310,13 +310,15 @@ async fn execute_tool(
         }
         
         "request_ride" => {
-            let location_name = args["location_name"].as_str().unwrap_or("");
+            let to_location = args["to_location"].as_str().unwrap_or("");
+            let from_location = args["from_location"].as_str(); // Optional - defaults to home
             
-            match RideService::book_ride_by_name(&state.db, &state.uber, elder_id, location_name).await {
+            match RideService::book_ride_flexible(&state.db, &state.uber, elder_id, from_location, to_location).await {
                 Ok(ride_info) => {
                     json!({
                         "success": true,
-                        "destination": ride_info.destination_name,
+                        "from": ride_info.pickup_name,
+                        "to": ride_info.destination_name,
                         "status": ride_info.status.to_string(),
                         "driver": ride_info.driver_name,
                         "vehicle": ride_info.vehicle_description,

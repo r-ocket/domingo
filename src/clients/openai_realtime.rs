@@ -464,16 +464,20 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "request_ride",
-            "Solicitar un viaje en Uber a una ubicación guardada",
+            "Solicitar un viaje en Uber entre ubicaciones guardadas. Por defecto recoge en casa.",
             json!({
                 "type": "object",
                 "properties": {
-                    "location_name": {
+                    "to_location": {
                         "type": "string",
-                        "description": "El nombre de la ubicación guardada a donde ir (ej: 'doctor', 'supermercado', 'casa')"
+                        "description": "El nombre del destino (ubicación guardada a donde ir, ej: 'doctor', 'supermercado')"
+                    },
+                    "from_location": {
+                        "type": "string",
+                        "description": "Opcional: punto de recogida si NO es casa (ej: 'doctor' para regresar del doctor a casa)"
                     }
                 },
-                "required": ["location_name"]
+                "required": ["to_location"]
             }),
         ),
         ToolDefinition::function(

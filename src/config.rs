@@ -30,6 +30,9 @@ pub struct Config {
     pub stripe_webhook_secret: String,
     pub stripe_price_id: String,
     
+    // Google Maps
+    pub google_maps_api_key: String,
+    
     // Session
     pub session_secret: String,
     
@@ -69,6 +72,9 @@ impl Config {
             stripe_secret_key: env::var("STRIPE_SECRET_KEY").unwrap_or_default(),
             stripe_webhook_secret: env::var("STRIPE_WEBHOOK_SECRET").unwrap_or_default(),
             stripe_price_id: env::var("STRIPE_PRICE_ID").unwrap_or_default(),
+            
+            // Google Maps
+            google_maps_api_key: env::var("GOOGLE_MAPS_API_KEY").unwrap_or_default(),
             
             // Session
             session_secret: env::var("SESSION_SECRET")

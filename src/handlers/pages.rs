@@ -204,6 +204,7 @@ pub async fn locations_page(
     context.insert("title", "Ubicaciones - Domingo");
     context.insert("current_path", "/elder/locations");
     context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
+    context.insert("google_maps_api_key", &state.config.google_maps_api_key);
     
     // Get all elders and selected elder
     if let Some((selected_elder, elders)) = get_selected_elder(&state, &jar, session.caregiver_id).await {

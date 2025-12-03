@@ -103,6 +103,7 @@ pub struct UpdateRideRequest {
 #[derive(Debug, Clone, Serialize)]
 pub struct RideInfo {
     pub status: RideStatus,
+    pub pickup_name: String,
     pub destination_name: String,
     pub driver_name: Option<String>,
     pub vehicle_description: Option<String>,
