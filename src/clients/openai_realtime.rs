@@ -5,6 +5,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use tokio::sync::mpsc;
 use tokio_tungstenite::{connect_async, tungstenite::Message};
+use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
 /// OpenAI Realtime API client
 pub struct OpenAIClient {
@@ -25,15 +26,22 @@ impl OpenAIClient {
         system_prompt: &str,
         tools: Vec<ToolDefinition>,
     ) -> Result<RealtimeSession, OpenAIError> {
-        // Using the stable Realtime model (August 2025)
-        let url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28";
+        // OpenAI Realtime API - using gpt-4o-realtime-preview
+        let url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-12-17";
         
-        let request = http::Request::builder()
-            .uri(url)
-            .header("Authorization", format!("Bearer {}", self.api_key))
-            .header("OpenAI-Beta", "realtime=v1")
-            .body(())
+        // Create a proper WebSocket request with required headers
+        let mut request = url.into_client_request()
             .map_err(|e| OpenAIError::Connection(e.to_string()))?;
+        
+        // Add OpenAI authentication headers
+        request.headers_mut().insert(
+            "Authorization",
+            format!("Bearer {}", self.api_key).parse().unwrap(),
+        );
+        request.headers_mut().insert(
+            "OpenAI-Beta",
+            "realtime=v1".parse().unwrap(),
+        );
         
         let (ws_stream, _) = connect_async(request)
             .await
@@ -112,9 +120,9 @@ impl RealtimeSession {
                 // Support both text and audio modalities
                 modalities: vec!["text".to_string(), "audio".to_string()],
                 instructions: system_prompt.to_string(),
-                // "coral" voice - warm, friendly, clear pronunciation
-                // Good for elderly care applications
-                voice: "coral".to_string(),
+                // "shimmer" voice - most natural sounding for Spanish
+                // Warm and clear, excellent for elderly care applications
+                voice: "shimmer".to_string(),
                 // g711_ulaw format for Twilio telephony compatibility
                 // Note: For WebRTC/browser, prefer "pcm16" or "opus" for lower latency
                 input_audio_format: "g711_ulaw".to_string(),
