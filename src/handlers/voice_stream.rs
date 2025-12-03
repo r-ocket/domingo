@@ -313,22 +313,6 @@ async fn execute_tool(
     let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
     
     match tool_name {
-        "get_saved_locations" => {
-            match LocationService::get_all_locations(&state.db, elder_id).await {
-                Ok(locations) => {
-                    let location_list: Vec<_> = locations.iter()
-                        .map(|l| json!({
-                            "name": l.name,
-                            "address": l.address,
-                            "is_home": l.is_home,
-                        }))
-                        .collect();
-                    json!({ "locations": location_list })
-                }
-                Err(e) => json!({ "error": e.to_string() }),
-            }
-        }
-        
         "request_ride" => {
             let to_location = args["to_location"].as_str().unwrap_or("");
             let from_location = args["from_location"].as_str(); // Optional - defaults to home
@@ -337,8 +321,9 @@ async fn execute_tool(
                 Ok(ride_info) => {
                     json!({
                         "success": true,
-                        "from": ride_info.pickup_name,
-                        "to": ride_info.destination_name,
+                        "mensaje": format!("He pedido un Uber de {} a {}", 
+                            ride_info.pickup_name, 
+                            ride_info.destination_name),
                         "status": ride_info.status.to_string(),
                         "driver": ride_info.driver_name,
                         "vehicle": ride_info.vehicle_description,
@@ -349,66 +334,17 @@ async fn execute_tool(
             }
         }
         
-        "get_upcoming_medications" => {
-            match MedicationService::get_upcoming_medications(&state.db, elder_id).await {
-                Ok(meds) => {
-                    let med_list: Vec<_> = meds.iter()
-                        .map(|m| json!({
-                            "name": m.medication_name,
-                            "dosage": m.dosage,
-                            "time": m.scheduled_time.format("%H:%M").to_string(),
-                            "instructions": m.instructions,
-                        }))
-                        .collect();
-                    json!({ "upcoming_medications": med_list })
-                }
-                Err(e) => json!({ "error": e.to_string() }),
-            }
-        }
-        
-        "get_medication_schedule" => {
-            match MedicationService::get_all_medications(&state.db, elder_id).await {
-                Ok(meds) => {
-                    let schedule: Vec<_> = meds.iter()
-                        .map(|m| json!({
-                            "name": m.medication.name,
-                            "dosage": m.medication.dosage,
-                            "instructions": m.medication.instructions,
-                            "times": m.schedules.iter()
-                                .map(|s| s.time_of_day.format("%H:%M").to_string())
-                                .collect::<Vec<_>>(),
-                        }))
-                        .collect();
-                    json!({ "medication_schedule": schedule })
-                }
-                Err(e) => json!({ "error": e.to_string() }),
-            }
-        }
-        
-        "get_contact_info" => {
-            let query = args["name_or_relationship"].as_str().unwrap_or("");
-            
-            match ContactService::search_contacts(&state.db, elder_id, query).await {
-                Ok(contacts) if !contacts.is_empty() => {
-                    let contact = &contacts[0];
-                    json!({
-                        "name": contact.name,
-                        "relationship": contact.relationship,
-                        "phone": contact.phone,
-                        "notes": contact.notes,
-                    })
-                }
-                Ok(_) => json!({ "error": format!("No contact found matching '{}'", query) }),
-                Err(e) => json!({ "error": e.to_string() }),
-            }
-        }
-        
         "call_contact" => {
-            let query = args["name_or_relationship"].as_str().unwrap_or("");
+            // Use contact_name parameter (new) or fall back to name_or_relationship (old)
+            let query = args["contact_name"].as_str()
+                .or_else(|| args["name_or_relationship"].as_str())
+                .unwrap_or("");
             
             match ContactService::search_contacts(&state.db, elder_id, query).await {
                 Ok(contacts) if !contacts.is_empty() => {
                     let contact = &contacts[0];
+                    
+                    tracing::info!("Transferring call to {} at {}", contact.name, contact.phone);
                     
                     // Update call to transfer
                     let twiml = state.twilio.generate_dial_twiml(&contact.phone);
@@ -424,19 +360,19 @@ async fn execute_tool(
                             
                             json!({
                                 "success": true,
+                                "mensaje": format!("Transfiriendo la llamada a {}", contact.name),
                                 "transferring_to": contact.name,
-                                "phone": contact.phone,
                             })
                         }
-                        Err(e) => json!({ "error": format!("Failed to transfer call: {}", e) }),
+                        Err(e) => json!({ "error": format!("No pude transferir la llamada: {}", e) }),
                     }
                 }
-                Ok(_) => json!({ "error": format!("No contact found matching '{}'", query) }),
+                Ok(_) => json!({ "error": format!("No encontré un contacto llamado '{}'. Revisa los nombres en la lista de contactos.", query) }),
                 Err(e) => json!({ "error": e.to_string() }),
             }
         }
         
-        _ => json!({ "error": format!("Unknown tool: {}", tool_name) }),
+        _ => json!({ "error": format!("Herramienta desconocida: {}", tool_name) }),
     }
 }
 
@@ -469,12 +405,13 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
     // Fetch and add contacts
     if let Ok(contacts) = ContactService::get_all_contacts(&state.db, elder.id).await {
         if !contacts.is_empty() {
-            let mut contact_list = String::from("## Contactos Guardados\n");
+            let mut contact_list = String::from("## Contactos Guardados\nPara transferir una llamada, usa call_contact con el nombre EXACTO:\n");
             for c in &contacts {
-                let emergency = if c.is_emergency { " (EMERGENCIA)" } else { "" };
+                let emergency = if c.is_emergency { " ⚠️ EMERGENCIA" } else { "" };
+                let notes = c.notes.as_deref().map(|n| format!(" - {}", n)).unwrap_or_default();
                 contact_list.push_str(&format!(
-                    "- **{}** ({}){}: {}\n",
-                    c.name, c.relationship, emergency, c.phone
+                    "- **{}** ({}){}:{}\n",
+                    c.name, c.relationship, emergency, notes
                 ));
             }
             context_parts.push(contact_list);
@@ -528,22 +465,34 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
         }
     }
     
-    // Fetch and add medications
+    // Fetch and add medications - FULL details in context (no tool needed)
     if let Ok(meds) = MedicationService::get_all_medications(&state.db, elder.id).await {
         if !meds.is_empty() {
-            let mut med_list = String::from("## Medicamentos\n");
+            let mut med_list = String::from("## Medicamentos (Información Completa)\n");
+            med_list.push_str("IMPORTANTE: Usa SOLO esta información para responder preguntas sobre medicamentos. NO inventes información.\n\n");
+            
             for m in &meds {
-                let times: Vec<String> = m.schedules.iter()
-                    .map(|s| s.time_of_day.format("%H:%M").to_string())
-                    .collect();
-                let days = m.schedules.first().map(|s| s.days_description()).unwrap_or_default();
-                let instructions = m.medication.instructions.as_deref().unwrap_or("");
-                med_list.push_str(&format!(
-                    "- **{}** ({}) - {} a las {} {}\n",
-                    m.medication.name, m.medication.dosage, days, times.join(", "), instructions
-                ));
+                med_list.push_str(&format!("### {}\n", m.medication.name));
+                med_list.push_str(&format!("- **Dosis**: {}\n", m.medication.dosage));
+                
+                if let Some(instructions) = &m.medication.instructions {
+                    if !instructions.is_empty() {
+                        med_list.push_str(&format!("- **Instrucciones**: {}\n", instructions));
+                    }
+                }
+                
+                if !m.schedules.is_empty() {
+                    let days = m.schedules.first().map(|s| s.days_description()).unwrap_or_default();
+                    let times: Vec<String> = m.schedules.iter()
+                        .map(|s| s.time_of_day.format("%H:%M").to_string())
+                        .collect();
+                    med_list.push_str(&format!("- **Cuándo tomarlo**: {} a las {}\n", days, times.join(", ")));
+                }
+                med_list.push('\n');
             }
             context_parts.push(med_list);
+        } else {
+            context_parts.push("## Medicamentos\nNo hay medicamentos registrados.".to_string());
         }
     }
     
