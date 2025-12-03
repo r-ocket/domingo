@@ -14,7 +14,7 @@ use crate::clients::{
     TwilioStreamMessage, TwilioOutboundMedia,
     RealtimeServerEvent, build_assistant_tools, SYSTEM_PROMPT,
 };
-use crate::domain::CallStatus;
+use crate::domain::{CallStatus, Elder};
 use crate::services::{
     CallService, ContactService, ElderService, LocationService,
     MedicationService, RideService, Speaker,
@@ -67,8 +67,11 @@ async fn handle_media_stream(
         elder.phone_number.clone(),
     );
     
+    // Build dynamic context with elder's data
+    let dynamic_prompt = build_dynamic_prompt(&state, &elder).await;
+    
     // Connect to OpenAI Realtime
-    let openai_session = match state.openai.connect_realtime(SYSTEM_PROMPT, build_assistant_tools()).await {
+    let openai_session = match state.openai.connect_realtime(&dynamic_prompt, build_assistant_tools()).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to connect to OpenAI Realtime: {}", e);
@@ -413,4 +416,68 @@ async fn execute_tool(
         
         _ => json!({ "error": format!("Unknown tool: {}", tool_name) }),
     }
+}
+
+/// Build a dynamic system prompt that includes the elder's specific context
+async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
+    let mut context_parts = vec![];
+    
+    // Add elder's name for personalization
+    context_parts.push(format!(
+        "## Información del Usuario\nEstás hablando con **{}**.",
+        elder.name
+    ));
+    
+    // Fetch and add contacts
+    if let Ok(contacts) = ContactService::get_all_contacts(&state.db, elder.id).await {
+        if !contacts.is_empty() {
+            let mut contact_list = String::from("## Contactos Guardados\n");
+            for c in &contacts {
+                let emergency = if c.is_emergency { " (EMERGENCIA)" } else { "" };
+                contact_list.push_str(&format!(
+                    "- **{}** ({}){}: {}\n",
+                    c.name, c.relationship, emergency, c.phone
+                ));
+            }
+            context_parts.push(contact_list);
+        }
+    }
+    
+    // Fetch and add locations
+    if let Ok(locations) = LocationService::get_all_locations(&state.db, elder.id).await {
+        if !locations.is_empty() {
+            let mut location_list = String::from("## Ubicaciones Guardadas\n");
+            for l in &locations {
+                let home = if l.is_home { " (CASA - punto de recogida)" } else { "" };
+                location_list.push_str(&format!(
+                    "- **{}**{}: {}\n",
+                    l.name, home, l.address
+                ));
+            }
+            context_parts.push(location_list);
+        }
+    }
+    
+    // Fetch and add medications
+    if let Ok(meds) = MedicationService::get_all_medications(&state.db, elder.id).await {
+        if !meds.is_empty() {
+            let mut med_list = String::from("## Medicamentos\n");
+            for m in &meds {
+                let times: Vec<String> = m.schedules.iter()
+                    .map(|s| s.time_of_day.format("%H:%M").to_string())
+                    .collect();
+                let instructions = m.medication.instructions.as_deref().unwrap_or("");
+                med_list.push_str(&format!(
+                    "- **{}** ({}) a las {} {}\n",
+                    m.medication.name, m.medication.dosage, times.join(", "), instructions
+                ));
+            }
+            context_parts.push(med_list);
+        }
+    }
+    
+    // Combine base prompt with dynamic context
+    let dynamic_context = context_parts.join("\n\n");
+    
+    format!("{}\n\n---\n\n{}", SYSTEM_PROMPT, dynamic_context)
 }

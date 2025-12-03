@@ -72,8 +72,8 @@
                             <textarea x-model="form.address" required rows="2" placeholder="Dirección completa" class="form-textarea"></textarea>
                         </div>
                         <div class="form-group">
-                            <label class="form-label">Notas (opcional)</label>
-                            <textarea x-model="form.notes" rows="2" placeholder="ej. Usar entrada trasera" class="form-textarea"></textarea>
+                            <label class="form-label">Instrucciones adicionales (opcional)</label>
+                            <textarea x-model="form.extra_instructions" rows="2" placeholder="ej. Usar entrada trasera" class="form-textarea"></textarea>
                         </div>
                         <div class="form-group">
                             <label class="flex items-center gap-3">
@@ -110,7 +110,7 @@ function locationsPage(elderId) {
         loading: true,
         showModal: false,
         saving: false,
-        form: { name: '', address: '', notes: '', is_home: false },
+        form: { name: '', address: '', extra_instructions: '', is_home: false },
         
         async init() {
             if (!this.elderId) return;
@@ -141,7 +141,7 @@ function locationsPage(elderId) {
                 });
                 if (res.ok) {
                     this.showModal = false;
-                    this.form = { name: '', address: '', notes: '', is_home: false };
+                    this.form = { name: '', address: '', extra_instructions: '', is_home: false };
                     await this.loadLocations();
                 }
             } catch (e) {

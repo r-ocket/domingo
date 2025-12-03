@@ -98,6 +98,25 @@ impl ContactRepository {
         Ok(rows.iter().map(row_to_contact).collect())
     }
     
+    /// Find all contacts for an elder (no pagination)
+    pub async fn find_all_by_elder(pool: &PostgresPool, elder_id: Uuid) -> DomainResult<Vec<Contact>> {
+        let client = pool.get().await?;
+        
+        let rows = client
+            .query(
+                r#"
+                SELECT id, elder_id, name, relationship, phone, notes, is_emergency, created_at, updated_at
+                FROM contacts 
+                WHERE elder_id = $1
+                ORDER BY is_emergency DESC, name
+                "#,
+                &[&elder_id],
+            )
+            .await?;
+        
+        Ok(rows.iter().map(row_to_contact).collect())
+    }
+    
     /// List contacts for an elder
     pub async fn list_by_elder(
         pool: &PostgresPool,

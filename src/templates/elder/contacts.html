@@ -75,7 +75,7 @@
                         </div>
                         <div class="form-group">
                             <label class="form-label">Teléfono</label>
-                            <input type="tel" x-model="form.phone_number" required class="form-input">
+                            <input type="tel" x-model="form.phone" required class="form-input">
                         </div>
                         <div class="form-group">
                             <label class="form-label">Notas (opcional)</label>
@@ -116,7 +116,7 @@ function contactsPage(elderId) {
         loading: true,
         showModal: false,
         saving: false,
-        form: { name: '', relationship: '', phone_number: '', notes: '', is_emergency: false },
+        form: { name: '', relationship: '', phone: '', notes: '', is_emergency: false },
         
         async init() {
             if (!this.elderId) return;
@@ -147,7 +147,7 @@ function contactsPage(elderId) {
                 });
                 if (res.ok) {
                     this.showModal = false;
-                    this.form = { name: '', relationship: '', phone_number: '', notes: '', is_emergency: false };
+                    this.form = { name: '', relationship: '', phone: '', notes: '', is_emergency: false };
                     await this.loadContacts();
                 }
             } catch (e) {

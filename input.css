@@ -305,7 +305,7 @@
   }
 
   .modal {
-    @apply relative bg-surface-900 border border-surface-700/50 rounded w-full max-w-md p-6;
+    @apply relative z-50 bg-surface-900 border border-surface-700/50 rounded w-full max-w-md p-6;
   }
 
   .modal-lg {

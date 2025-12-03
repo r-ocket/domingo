@@ -66,6 +66,14 @@ impl ContactService {
         ContactRepository::find_emergency(pool, elder_id).await
     }
     
+    /// Get all contacts for an elder (no auth check - used for voice context)
+    pub async fn get_all_contacts(
+        pool: &PostgresPool,
+        elder_id: Uuid,
+    ) -> DomainResult<Vec<Contact>> {
+        ContactRepository::find_all_by_elder(pool, elder_id).await
+    }
+    
     /// List contacts for an elder
     pub async fn list_contacts(
         pool: &PostgresPool,
