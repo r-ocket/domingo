@@ -7,8 +7,8 @@ on:
 env:
   CARGO_TERM_COLOR: always
   EC2_HOST_DEV: ${{ vars.EC2_HOST_DEV }}
-  EC2_USERNAME_DEV: ${{ vars.EC2_USERNAME_DEV }}
-  BINARY_NAME: asistente-domingo
+  EC2_USERNAME_DEV: ${{ vars.EC2_USERNAME_DE }}
+  BINARY_NAME: domingo
   DOMINGO_HOME: /opt/domingo
 
 jobs:
@@ -24,7 +24,7 @@ jobs:
       
       - uses: actions/setup-node@v3
         with:
-          node-version: "18"
+          node-version: "22"
       
       - name: Install dependencies and build CSS
         run: |
@@ -66,17 +66,11 @@ jobs:
             sudo chown ${{ env.EC2_USERNAME_DEV }}:${{ env.EC2_USERNAME_DEV }} ${{ env.DOMINGO_HOME }}
             cd ${{ env.DOMINGO_HOME }}
             
-            # Backup current .env if exists
-            [ -f .env ] && cp .env /tmp/.env.backup
-            
             # Clean and extract
             rm -rf src/templates static migrations ${{ env.BINARY_NAME }}
             unzip -o /tmp/domingo_release.zip
             mv target/release/${{ env.BINARY_NAME }} .
             chmod +x ${{ env.BINARY_NAME }}
-            
-            # Restore .env
-            [ -f /tmp/.env.backup ] && mv /tmp/.env.backup .env
             
             # Cleanup
             rm -rf /tmp/domingo_release.zip target
