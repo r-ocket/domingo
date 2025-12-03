@@ -36,6 +36,10 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/elder/:elder_id", get(elder::get_elder))
         .route("/api/elder/:elder_id", put(elder::update_elder))
         
+        // Caregiver elders (multi-elder support)
+        .route("/api/caregiver/elders", get(elder::list_caregiver_elders))
+        .route("/api/caregiver/select-elder", post(elder::select_elder))
+        
         // Contacts
         .route("/api/elder/:elder_id/contacts", get(contacts::list_contacts))
         .route("/api/elder/:elder_id/contacts", post(contacts::create_contact))
@@ -76,6 +80,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/twilio/status", post(twilio_webhooks::call_status))
         .route("/api/twilio/reminder-twiml", post(twilio_webhooks::reminder_twiml))
         .route("/api/twilio/reminder-confirm", post(twilio_webhooks::reminder_confirm))
+        .route("/api/twilio/outbound-voice", post(twilio_webhooks::outbound_voice))
         
         // Stripe webhooks
         .route("/api/stripe/webhook", post(stripe_webhooks::handle_webhook))
@@ -93,9 +98,16 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/admin/logs/rides", get(admin::list_all_ride_logs))
         .route("/api/admin/stats", get(admin::get_stats))
         
+        // Live call monitoring
+        .route("/api/admin/calls", get(admin::list_active_calls))
+        .route("/api/admin/calls/live", get(admin::calls_sse))
+        .route("/api/admin/calls/:call_sid", get(admin::get_call_state))
+        .route("/api/admin/calls/:call_sid/stream", get(admin::call_stream_sse))
+        
         // Debug routes (no auth - development only)
         .route("/debug/caregiver", post(debug::create_caregiver))
         .route("/debug/elder", post(debug::create_elder))
+        .route("/debug/call-elder", post(debug::initiate_call))
         .route("/debug/health", get(debug::health))
 }
 
@@ -123,6 +135,7 @@ pub fn page_routes() -> Router<AppState> {
         .route("/admin/caregivers", get(pages::admin_caregivers))
         .route("/admin/elders", get(pages::admin_elders))
         .route("/admin/logs", get(pages::admin_logs))
+        .route("/admin/calls", get(pages::admin_calls))
         .route("/admin/debug", get(pages::admin_debug))
 }
 

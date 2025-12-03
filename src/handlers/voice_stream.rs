@@ -17,7 +17,7 @@ use crate::clients::{
 use crate::domain::CallStatus;
 use crate::services::{
     CallService, ContactService, ElderService, LocationService,
-    MedicationService, RideService,
+    MedicationService, RideService, Speaker,
 };
 use crate::AppState;
 
@@ -59,20 +59,32 @@ async fn handle_media_stream(
     
     tracing::info!("Starting voice session for elder {} ({})", elder.name, elder.id);
     
+    // Register call with live state store
+    state.call_state.start_call(
+        call_sid.clone(),
+        elder.id,
+        elder.name.clone(),
+        elder.phone_number.clone(),
+    );
+    
     // Connect to OpenAI Realtime
     let openai_session = match state.openai.connect_realtime(SYSTEM_PROMPT, build_assistant_tools()).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to connect to OpenAI Realtime: {}", e);
+            state.call_state.end_call(&call_sid, true);
             return;
         }
     };
+    
+    // Mark call as active now that OpenAI is connected
+    state.call_state.set_active(&call_sid);
     
     // Track stream SID for sending audio back
     let stream_sid = Arc::new(tokio::sync::RwLock::new(String::new()));
     let stream_sid_clone = stream_sid.clone();
     
-    // Shared transcript accumulator
+    // Shared transcript accumulator (for database storage)
     let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
     let transcript_clone = transcript.clone();
     
@@ -103,11 +115,15 @@ async fn handle_media_stream(
     let elder_id = elder.id;
     let session_id = session.id;
     let call_sid_clone = call_sid.clone();
+    let call_sid_for_openai = call_sid.clone();
     
     // Spawn task to handle OpenAI communication (both sending audio and receiving events)
     let mut openai_session = openai_session;
     let twilio_tx_clone = twilio_tx.clone();
     tokio::spawn(async move {
+        // Track partial transcript for combining
+        let mut current_assistant_text = String::new();
+        
         loop {
             tokio::select! {
                 // Handle incoming audio from Twilio -> forward to OpenAI
@@ -119,41 +135,87 @@ async fn handle_media_stream(
                 }
                 // Handle events from OpenAI
                 Some(event) = openai_session.recv_event() => {
-            match event {
-                RealtimeServerEvent::ResponseAudioDelta { delta } => {
-                    // Send audio to Twilio
-                    let _ = twilio_tx_clone.send(delta).await;
-                }
+                    match event {
+                        RealtimeServerEvent::ResponseAudioDelta { delta } => {
+                            // Send audio to Twilio
+                            let _ = twilio_tx_clone.send(delta).await;
+                        }
                         RealtimeServerEvent::ResponseAudioTranscriptDelta { delta } => {
-                            // Accumulate transcript
-                            let mut t = transcript_clone.lock().await;
-                            t.push_str(&delta);
-                }
-                RealtimeServerEvent::ResponseFunctionCallArgumentsDone { call_id, name, arguments } => {
-                    tracing::info!("Function call: {} with args: {}", name, arguments);
-                    
-                    // Execute the function
-                    let result = execute_tool(
-                        &state_clone,
-                        elder_id,
-                        &name,
-                        &arguments,
-                        session_id,
-                        &call_sid_clone,
-                    ).await;
-                    
-                    // Record tool usage
-                    let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
-                    
-                    // Send result back to OpenAI
-                    if let Err(e) = openai_session.send_function_result(&call_id, result).await {
-                        tracing::error!("Failed to send function result: {}", e);
-                    }
-                }
-                RealtimeServerEvent::Error { error } => {
-                    tracing::error!("OpenAI error: {} - {}", error.r#type, error.message);
-                }
-                _ => {}
+                            // Accumulate transcript for database
+                            {
+                                let mut t = transcript_clone.lock().await;
+                                t.push_str(&delta);
+                            }
+                            
+                            // Add to current assistant text and broadcast partial
+                            current_assistant_text.push_str(&delta);
+                            state_clone.call_state.add_transcript(
+                                &call_sid_for_openai,
+                                Speaker::Assistant,
+                                current_assistant_text.clone(),
+                                true, // partial
+                            );
+                        }
+                        RealtimeServerEvent::ResponseAudioTranscriptDone { transcript: full_text } => {
+                            // Final transcript for this response - broadcast as complete
+                            state_clone.call_state.add_transcript(
+                                &call_sid_for_openai,
+                                Speaker::Assistant,
+                                full_text,
+                                false, // not partial
+                            );
+                            current_assistant_text.clear();
+                        }
+                        RealtimeServerEvent::ConversationItemInputAudioTranscriptionCompleted { transcript: user_text } => {
+                            // User's speech was transcribed
+                            state_clone.call_state.add_transcript(
+                                &call_sid_for_openai,
+                                Speaker::User,
+                                user_text,
+                                false, // complete
+                            );
+                        }
+                        RealtimeServerEvent::ResponseFunctionCallArgumentsDone { call_id, name, arguments } => {
+                            tracing::info!("Function call: {} with args: {}", name, arguments);
+                            
+                            // Broadcast tool call started
+                            state_clone.call_state.add_tool_call(
+                                &call_sid_for_openai,
+                                call_id.clone(),
+                                name.clone(),
+                                arguments.clone(),
+                            );
+                            
+                            // Execute the function
+                            let result = execute_tool(
+                                &state_clone,
+                                elder_id,
+                                &name,
+                                &arguments,
+                                session_id,
+                                &call_sid_clone,
+                            ).await;
+                            
+                            // Record tool usage
+                            let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
+                            
+                            // Broadcast tool call completed
+                            let result_str = serde_json::to_string(&result).unwrap_or_default();
+                            state_clone.call_state.complete_tool_call(
+                                &call_sid_for_openai,
+                                &call_id,
+                                result_str,
+                            );
+                            
+                            // Send result back to OpenAI
+                            if let Err(e) = openai_session.send_function_result(&call_id, result).await {
+                                tracing::error!("Failed to send function result: {}", e);
+                            }
+                        }
+                        RealtimeServerEvent::Error { error } => {
+                            tracing::error!("OpenAI error: {} - {}", error.r#type, error.message);
+                        }
+                        _ => {}
                     }
                 }
                 else => break,
@@ -209,6 +271,9 @@ async fn handle_media_stream(
         None,
         final_transcript,
     ).await;
+    
+    // End call in live state store
+    state.call_state.end_call(&call_sid, false);
     
     tracing::info!("Voice session ended for call {}", call_sid);
 }
@@ -349,4 +414,3 @@ async fn execute_tool(
         _ => json!({ "error": format!("Unknown tool: {}", tool_name) }),
     }
 }
-
