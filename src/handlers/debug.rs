@@ -15,6 +15,7 @@ use crate::domain::{CreateCaregiverRequest, CreateElderRequest, UserRole};
 use crate::repositories::postgres::{CaregiverRepository, ElderRepository};
 use crate::services::AuthService;
 use crate::AppState;
+use crate::clients::TwilioError;
 
 /// Request to create a debug caregiver
 #[derive(Debug, Deserialize)]
@@ -172,6 +173,51 @@ pub async fn create_elder(
     })))
 }
 
+/// Request to initiate a call to an elder
+#[derive(Debug, Deserialize)]
+pub struct InitiateCallRequest {
+    pub elder_id: Uuid,
+}
+
+/// Response for initiated call
+#[derive(Debug, Serialize)]
+pub struct InitiateCallResponse {
+    pub call_sid: String,
+    pub status: String,
+    pub elder_name: String,
+    pub phone_number: String,
+}
+
+/// Initiate an outbound call to an elder (no auth required)
+#[tracing::instrument(skip(state), fields(elder_id = %req.elder_id))]
+pub async fn initiate_call(
+    State(state): State<AppState>,
+    Json(req): Json<InitiateCallRequest>,
+) -> Result<impl IntoResponse, DebugError> {
+    tracing::info!("Initiating outbound call to elder");
+    
+    // Look up elder
+    let elder = ElderRepository::find_by_id(&state.db, req.elder_id).await
+        .map_err(|e| DebugError::Domain(format!("Elder not found: {}", e)))?;
+    
+    // Build the TwiML URL for the outbound call
+    let twiml_url = format!("{}/api/twilio/outbound-voice?elder_id={}", 
+        state.config.base_url, req.elder_id);
+    
+    // Initiate the call via Twilio
+    let call_response = state.twilio.make_call(&elder.phone_number, &twiml_url).await
+        .map_err(|e| DebugError::Twilio(e))?;
+    
+    tracing::info!(call_sid = %call_response.sid, "Outbound call initiated");
+    
+    Ok((StatusCode::OK, Json(InitiateCallResponse {
+        call_sid: call_response.sid,
+        status: call_response.status,
+        elder_name: elder.name,
+        phone_number: elder.phone_number,
+    })))
+}
+
 /// Health check endpoint
 #[tracing::instrument(skip(state))]
 pub async fn health(
@@ -210,6 +256,7 @@ pub async fn health(
 pub enum DebugError {
     Validation(String),
     Domain(String),
+    Twilio(TwilioError),
 }
 
 impl IntoResponse for DebugError {
@@ -217,6 +264,7 @@ impl IntoResponse for DebugError {
         let (status, message) = match self {
             DebugError::Validation(msg) => (StatusCode::BAD_REQUEST, msg),
             DebugError::Domain(msg) => (StatusCode::INTERNAL_SERVER_ERROR, msg),
+            DebugError::Twilio(e) => (StatusCode::BAD_GATEWAY, format!("Twilio error: {}", e)),
         };
         
         (status, Json(serde_json::json!({ "error": message }))).into_response()
