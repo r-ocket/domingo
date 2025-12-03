@@ -3,15 +3,27 @@
 //! Defines the tools available through the MCP server:
 //! - request_ride: Request an Uber ride
 //! - call_contact: Transfer the call to a contact
+//!
+//! Also provides resource access for elder context:
+//! - elder://info - Basic elder info
+//! - elder://medications - Medication schedule
+//! - elder://contacts - Contact list
+//! - elder://locations - Saved locations
 
 use std::sync::Arc;
 use serde_json::{json, Value};
 use uuid::Uuid;
 
+use crate::domain::Pagination;
 use crate::repositories::postgres::PostgresPool;
 use crate::clients::{TwilioClient, UberClient};
-use crate::services::{ContactService, RideService};
-use super::types::{ToolDefinition, CallToolResult};
+use crate::services::{ContactService, ElderService, LocationService, MedicationService, RideService};
+use super::types::{ToolDefinition, CallToolResult, ResourceContent};
+
+/// Pagination that returns all results (for MCP resource reads)
+fn all_results() -> Pagination {
+    Pagination { page: 1, per_page: 1000 }
+}
 
 /// Context needed to execute tools
 #[derive(Clone)]
@@ -174,5 +186,137 @@ async fn execute_call_contact(ctx: &ToolContext, args: Value) -> CallToolResult 
             CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
         }
     }
+}
+
+// ============================================================================
+// Resource Reading
+// ============================================================================
+
+/// Read an MCP resource by URI
+pub async fn read_resource(ctx: &ToolContext, uri: &str) -> Result<ResourceContent, String> {
+    match uri {
+        "elder://info" => read_elder_info(ctx).await,
+        "elder://medications" => read_medications(ctx).await,
+        "elder://contacts" => read_contacts(ctx).await,
+        "elder://locations" => read_locations(ctx).await,
+        _ => Err(format!("Unknown resource: {}", uri)),
+    }
+}
+
+/// Read elder basic info
+async fn read_elder_info(ctx: &ToolContext) -> Result<ResourceContent, String> {
+    // We only need the bypass for fetching our own elder data
+    let elder = ElderService::get_elder(&ctx.db, ctx.elder_id, Uuid::nil(), true)
+        .await
+        .map_err(|e| format!("Failed to fetch elder: {}", e))?;
+    
+    let info = json!({
+        "name": elder.name,
+        "phone": elder.phone_number,
+    });
+    
+    Ok(ResourceContent {
+        uri: "elder://info".to_string(),
+        mime_type: Some("application/json".to_string()),
+        text: Some(serde_json::to_string_pretty(&info).unwrap_or_default()),
+        blob: None,
+    })
+}
+
+/// Read medications schedule
+async fn read_medications(ctx: &ToolContext) -> Result<ResourceContent, String> {
+    // Use admin bypass to fetch elder's medications during call
+    let paginated = MedicationService::list_medications(&ctx.db, ctx.elder_id, Uuid::nil(), true, &all_results())
+        .await
+        .map_err(|e| format!("Failed to fetch medications: {}", e))?;
+    let medications = paginated.items;
+    
+    let meds: Vec<_> = medications.iter().map(|m| {
+        // Format schedules as readable strings
+        let schedules: Vec<_> = m.schedules.iter().map(|s| {
+            json!({
+                "hora": s.time_of_day.format("%H:%M").to_string(),
+                "dias": s.days_description(),
+            })
+        }).collect();
+        
+        json!({
+            "nombre": m.medication.name,
+            "dosis": m.medication.dosage,
+            "instrucciones": m.medication.instructions,
+            "horarios": schedules,
+        })
+    }).collect();
+    
+    let content = json!({
+        "medicamentos": meds,
+        "total": medications.len(),
+    });
+    
+    Ok(ResourceContent {
+        uri: "elder://medications".to_string(),
+        mime_type: Some("application/json".to_string()),
+        text: Some(serde_json::to_string_pretty(&content).unwrap_or_default()),
+        blob: None,
+    })
+}
+
+/// Read contacts list
+async fn read_contacts(ctx: &ToolContext) -> Result<ResourceContent, String> {
+    // Use admin bypass to fetch elder's contacts during call
+    let paginated = ContactService::list_contacts(&ctx.db, ctx.elder_id, Uuid::nil(), true, &all_results())
+        .await
+        .map_err(|e| format!("Failed to fetch contacts: {}", e))?;
+    let contacts = paginated.items;
+    
+    let contacts_json: Vec<_> = contacts.iter().map(|c| {
+        json!({
+            "nombre": c.name,
+            "relacion": c.relationship,
+            "es_emergencia": c.is_emergency,
+        })
+    }).collect();
+    
+    let content = json!({
+        "contactos": contacts_json,
+        "total": contacts.len(),
+    });
+    
+    Ok(ResourceContent {
+        uri: "elder://contacts".to_string(),
+        mime_type: Some("application/json".to_string()),
+        text: Some(serde_json::to_string_pretty(&content).unwrap_or_default()),
+        blob: None,
+    })
+}
+
+/// Read saved locations
+async fn read_locations(ctx: &ToolContext) -> Result<ResourceContent, String> {
+    // Use admin bypass to fetch elder's locations during call
+    let paginated = LocationService::list_locations(&ctx.db, ctx.elder_id, Uuid::nil(), true, &all_results())
+        .await
+        .map_err(|e| format!("Failed to fetch locations: {}", e))?;
+    let locations = paginated.items;
+    
+    let locs: Vec<_> = locations.iter().map(|l| {
+        json!({
+            "nombre": l.name,
+            "tipo": format!("{:?}", l.location_type),
+            "direccion": l.address,
+            "es_casa": l.is_home,
+        })
+    }).collect();
+    
+    let content = json!({
+        "ubicaciones": locs,
+        "total": locations.len(),
+    });
+    
+    Ok(ResourceContent {
+        uri: "elder://locations".to_string(),
+        mime_type: Some("application/json".to_string()),
+        text: Some(serde_json::to_string_pretty(&content).unwrap_or_default()),
+        blob: None,
+    })
 }
 

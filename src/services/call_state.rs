@@ -123,6 +123,14 @@ pub enum CallEvent {
     },
 }
 
+/// Context for MCP session (used by external AI providers)
+#[derive(Debug, Clone)]
+pub struct McpSessionContext {
+    pub elder_id: Uuid,
+    pub session_id: Uuid,
+    pub call_sid: String,
+}
+
 /// In-memory store for active calls
 #[derive(Debug)]
 pub struct CallStateStore {
@@ -132,6 +140,11 @@ pub struct CallStateStore {
     global_tx: broadcast::Sender<CallEvent>,
     /// Per-call broadcast channels
     call_txs: DashMap<String, broadcast::Sender<CallEvent>>,
+    /// MCP session tokens → context mapping
+    /// Token format: random UUID for security
+    mcp_sessions: DashMap<String, McpSessionContext>,
+    /// Reverse lookup: call_sid → MCP token
+    call_to_mcp_token: DashMap<String, String>,
 }
 
 impl Default for CallStateStore {
@@ -148,6 +161,8 @@ impl CallStateStore {
             calls: DashMap::new(),
             global_tx,
             call_txs: DashMap::new(),
+            mcp_sessions: DashMap::new(),
+            call_to_mcp_token: DashMap::new(),
         }
     }
 
@@ -373,6 +388,68 @@ impl CallStateStore {
         for call_sid in to_remove {
             self.calls.remove(&call_sid);
             self.call_txs.remove(&call_sid);
+            // Also clean up MCP session
+            if let Some((_, token)) = self.call_to_mcp_token.remove(&call_sid) {
+                self.mcp_sessions.remove(&token);
+            }
+        }
+    }
+
+    // ========================================================================
+    // MCP Session Management
+    // ========================================================================
+
+    /// Create or get an MCP session token for a call
+    /// 
+    /// Returns the MCP server URL that external AI providers should use
+    pub fn create_mcp_session(
+        &self,
+        call_sid: &str,
+        elder_id: Uuid,
+        session_id: Uuid,
+        base_url: &str,
+    ) -> String {
+        // Check if we already have a token for this call
+        if let Some(existing_token) = self.call_to_mcp_token.get(call_sid) {
+            return format!("{}/api/mcp/session/{}", base_url, existing_token.value());
+        }
+        
+        // Generate new token
+        let token = Uuid::new_v4().to_string();
+        
+        let ctx = McpSessionContext {
+            elder_id,
+            session_id,
+            call_sid: call_sid.to_string(),
+        };
+        
+        self.mcp_sessions.insert(token.clone(), ctx);
+        self.call_to_mcp_token.insert(call_sid.to_string(), token.clone());
+        
+        tracing::info!(
+            call_sid = %call_sid,
+            token = %token,
+            "Created MCP session"
+        );
+        
+        format!("{}/api/mcp/session/{}", base_url, token)
+    }
+
+    /// Get MCP context by session token
+    pub fn get_mcp_context(&self, token: &str) -> Option<McpSessionContext> {
+        self.mcp_sessions.get(token).map(|ctx| ctx.clone())
+    }
+
+    /// Get MCP token for a call (if exists)
+    pub fn get_mcp_token(&self, call_sid: &str) -> Option<String> {
+        self.call_to_mcp_token.get(call_sid).map(|t| t.value().clone())
+    }
+
+    /// Remove MCP session for a call
+    pub fn remove_mcp_session(&self, call_sid: &str) {
+        if let Some((_, token)) = self.call_to_mcp_token.remove(call_sid) {
+            self.mcp_sessions.remove(&token);
+            tracing::debug!(call_sid = %call_sid, "Removed MCP session");
         }
     }
 }

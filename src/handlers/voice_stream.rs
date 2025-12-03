@@ -365,7 +365,22 @@ async fn handle_elevenlabs_stream(
     dynamic_prompt: String,
     tool_ctx: ToolContext,
 ) {
+    // Create MCP session for this call
+    let mcp_url = state.call_state.create_mcp_session(
+        call_sid,
+        elder.id,
+        session_id,
+        &state.config.base_url,
+    );
+    tracing::info!(
+        call_sid = %call_sid,
+        mcp_url = %mcp_url,
+        "Created MCP session for ElevenLabs"
+    );
+    
     // Build agent config with dynamic prompt
+    // Note: The MCP URL should be configured in the ElevenLabs dashboard
+    // The prompt includes elder context as backup
     let full_prompt = format!("{}\n\n---\n\n{}", ELEVENLABS_SYSTEM_PROMPT, dynamic_prompt);
     let first_message = Some(format!(
         "Hola {}. Soy Domingo, tu asistente de voz. ¿En qué puedo ayudarte hoy?",

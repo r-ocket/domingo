@@ -156,12 +156,9 @@ impl ElevenLabsClient {
             inbound_rx,
         };
         
-        // Send initial configuration override if needed
-        // Note: Most config should be in the agent settings in ElevenLabs dashboard
-        // But we can override the prompt with dynamic context
-        if !agent_config.system_prompt.is_empty() {
-            session.send_context_override(&agent_config.system_prompt).await?;
-        }
+        // Send conversation initiation with config overrides
+        // This overrides the agent's base config with our dynamic context
+        session.send_conversation_init(&agent_config).await?;
         
         Ok(session)
     }
@@ -206,45 +203,26 @@ pub struct ConversationSession {
 }
 
 impl ConversationSession {
-    /// Send dynamic context to override/augment the agent's system prompt
-    /// This is useful for injecting elder-specific information
-    async fn send_context_override(&self, context: &str) -> Result<(), ElevenLabsError> {
-        // Send context injection message
-        // ElevenLabs Conversational AI supports dynamic context via conversation.item.create
-        let msg = ClientMessage::ContextOverride {
-            context: context.to_string(),
-        };
-        self.send_message(msg).await
-    }
-    
-    /// Initialize the conversation with configuration (legacy method - kept for compatibility)
-    #[allow(dead_code)]
-    async fn initialize(&self, config: AgentConfig) -> Result<(), ElevenLabsError> {
-        // Build conversation config message
+    /// Send conversation initiation with config overrides
+    /// This sends the dynamic system prompt with elder-specific context
+    async fn send_conversation_init(&self, config: &AgentConfig) -> Result<(), ElevenLabsError> {
+        // Build conversation config override message
+        // This overrides the agent's base config with our dynamic context
         let init_msg = ClientMessage::ConversationInitiation {
             conversation_config_override: ConversationConfigOverride {
-                agent: AgentOverride {
-                    prompt: PromptOverride {
-                        prompt: config.system_prompt,
-                    },
-                    first_message: config.first_message,
-                    language: "es".to_string(),
-                },
-                tts: TtsOverride {
-                    model_id: "eleven_flash_v2_5".to_string(),
-                    voice_id: "pFZP5JQG7iQjIQuC4Bku".to_string(), // Juan - Spanish voice
-                    optimize_streaming_latency: Some(3),
-                },
-                stt: SttOverride {
-                    model: "nova-2".to_string(),
-                    language: "es".to_string(),
-                },
-                // Configure LLM to use Claude Sonnet 4.5
-                llm: LlmOverride {
-                    provider: "anthropic".to_string(),
-                    model: "claude-sonnet-4-5-20241022".to_string(),
-                },
-                tools: Some(config.tools),
+                agent: Some(AgentOverride {
+                    prompt: Some(PromptOverride {
+                        prompt: config.system_prompt.clone(),
+                    }),
+                    first_message: config.first_message.clone(),
+                    language: Some("es".to_string()),
+                }),
+                // TTS/STT/LLM should be configured in the agent in dashboard
+                // Only override if needed
+                tts: None,
+                stt: None,
+                llm: None,
+                tools: if config.tools.is_empty() { None } else { Some(config.tools.clone()) },
             },
         };
         
@@ -304,14 +282,10 @@ impl ConversationSession {
 #[derive(Debug, Serialize)]
 #[serde(tag = "type", rename_all = "snake_case")]
 pub enum ClientMessage {
-    /// Initialize conversation with config
+    /// Initialize conversation with config overrides
+    #[serde(rename = "conversation_initiation_client_data")]
     ConversationInitiation {
         conversation_config_override: ConversationConfigOverride,
-    },
-    /// Send dynamic context to augment the agent's knowledge
-    #[serde(rename = "context_override")]
-    ContextOverride {
-        context: String,
     },
     /// Send audio chunk
     #[serde(rename = "user_audio_chunk")]
@@ -337,20 +311,26 @@ pub enum ClientMessage {
 
 #[derive(Debug, Serialize)]
 pub struct ConversationConfigOverride {
-    pub agent: AgentOverride,
-    pub tts: TtsOverride,
-    pub stt: SttOverride,
-    pub llm: LlmOverride,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub agent: Option<AgentOverride>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub tts: Option<TtsOverride>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub stt: Option<SttOverride>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub llm: Option<LlmOverride>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub tools: Option<Vec<ToolDefinition>>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct AgentOverride {
-    pub prompt: PromptOverride,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<PromptOverride>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub first_message: Option<String>,
-    pub language: String,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
@@ -359,6 +339,7 @@ pub struct PromptOverride {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct TtsOverride {
     pub model_id: String,
     pub voice_id: String,
@@ -367,12 +348,14 @@ pub struct TtsOverride {
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct SttOverride {
     pub model: String,
     pub language: String,
 }
 
 #[derive(Debug, Serialize)]
+#[allow(dead_code)]
 pub struct LlmOverride {
     pub provider: String,
     pub model: String,

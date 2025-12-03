@@ -28,6 +28,8 @@ impl McpServer {
             "initialized" => self.handle_initialized(request),
             "tools/list" => self.handle_list_tools(request),
             "tools/call" => self.handle_call_tool(request, tool_ctx).await,
+            "resources/list" => self.handle_list_resources(request),
+            "resources/read" => self.handle_read_resource(request, tool_ctx).await,
             "ping" => self.handle_ping(request),
             _ => JsonRpcResponse::error(
                 request.id,
@@ -50,7 +52,7 @@ impl McpServer {
             protocol_version: "2024-11-05".to_string(),
             capabilities: ServerCapabilities {
                 tools: Some(ToolsCapability { list_changed: false }),
-                resources: None,
+                resources: Some(serde_json::to_value(ResourcesCapability { list_changed: false }).unwrap()),
                 prompts: None,
             },
             server_info: ServerInfo {
@@ -136,6 +138,97 @@ impl McpServer {
     /// Handle ping request (for health checks)
     fn handle_ping(&self, request: JsonRpcRequest) -> JsonRpcResponse {
         JsonRpcResponse::success(request.id, json!({}))
+    }
+
+    /// Handle resources/list request
+    fn handle_list_resources(&self, request: JsonRpcRequest) -> JsonRpcResponse {
+        let resources = vec![
+            ResourceDefinition {
+                uri: "elder://info".to_string(),
+                name: "Elder Information".to_string(),
+                description: Some("Basic information about the elder (name, phone)".to_string()),
+                mime_type: Some("application/json".to_string()),
+            },
+            ResourceDefinition {
+                uri: "elder://medications".to_string(),
+                name: "Medications Schedule".to_string(),
+                description: Some("Complete list of medications with dosage and schedule".to_string()),
+                mime_type: Some("application/json".to_string()),
+            },
+            ResourceDefinition {
+                uri: "elder://contacts".to_string(),
+                name: "Emergency Contacts".to_string(),
+                description: Some("List of contacts the elder can call".to_string()),
+                mime_type: Some("application/json".to_string()),
+            },
+            ResourceDefinition {
+                uri: "elder://locations".to_string(),
+                name: "Saved Locations".to_string(),
+                description: Some("Saved locations for ride requests (home, doctor, etc)".to_string()),
+                mime_type: Some("application/json".to_string()),
+            },
+        ];
+        
+        let result = ListResourcesResult { resources };
+        JsonRpcResponse::success(
+            request.id,
+            serde_json::to_value(result).unwrap_or(Value::Null),
+        )
+    }
+
+    /// Handle resources/read request
+    async fn handle_read_resource(
+        &self,
+        request: JsonRpcRequest,
+        tool_ctx: Option<&ToolContext>,
+    ) -> JsonRpcResponse {
+        // Parse params
+        let params: ReadResourceParams = match request.params {
+            Some(p) => match serde_json::from_value(p) {
+                Ok(params) => params,
+                Err(e) => {
+                    return JsonRpcResponse::error(
+                        request.id,
+                        INVALID_PARAMS,
+                        format!("Invalid params: {}", e),
+                    );
+                }
+            },
+            None => {
+                return JsonRpcResponse::error(
+                    request.id,
+                    INVALID_PARAMS,
+                    "Missing params".to_string(),
+                );
+            }
+        };
+
+        // Check if we have context
+        let ctx = match tool_ctx {
+            Some(c) => c,
+            None => {
+                return JsonRpcResponse::error(
+                    request.id,
+                    INTERNAL_ERROR,
+                    "Session context not available".to_string(),
+                );
+            }
+        };
+
+        // Fetch the resource
+        let result = super::tools::read_resource(ctx, &params.uri).await;
+        
+        match result {
+            Ok(content) => JsonRpcResponse::success(
+                request.id,
+                serde_json::to_value(ReadResourceResult { contents: vec![content] }).unwrap_or(Value::Null),
+            ),
+            Err(e) => JsonRpcResponse::error(
+                request.id,
+                INTERNAL_ERROR,
+                e,
+            ),
+        }
     }
 
     /// Parse a JSON-RPC request from raw JSON
