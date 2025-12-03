@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::domain::{
     CallSession, CallStatus, CreateCallSessionRequest, DomainError,
-    DomainResult, Pagination, Paginated, UpdateCallSessionRequest,
+    DomainResult, Pagination, Paginated, UpdateCallSessionRequest, VoiceProvider,
 };
 use super::PostgresPool;
 
@@ -22,16 +22,17 @@ impl CallSessionRepository {
         let id = Uuid::new_v4();
         let now = Utc::now();
         let empty_tools: Vec<String> = Vec::new();
+        let voice_provider = req.voice_provider.to_string();
         
         let row = client
             .query_one(
                 r#"
-                INSERT INTO call_sessions (id, elder_id, twilio_call_sid, from_number, status, started_at, tools_used, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9)
-                RETURNING id, elder_id, twilio_call_sid, from_number, status, started_at, ended_at, duration_seconds,
+                INSERT INTO call_sessions (id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, tools_used, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
+                RETURNING id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, ended_at, duration_seconds,
                           summary_text, transcript, tools_used, transferred_to, metadata, created_at, updated_at
                 "#,
-                &[&id, &req.elder_id, &req.twilio_call_sid, &req.from_number, &"active", &now, &empty_tools, &now, &now],
+                &[&id, &req.elder_id, &req.twilio_call_sid, &req.from_number, &"active", &voice_provider, &now, &empty_tools, &now, &now],
             )
             .await?;
         
@@ -45,7 +46,7 @@ impl CallSessionRepository {
         let row = client
             .query_opt(
                 r#"
-                SELECT id, elder_id, twilio_call_sid, from_number, status, started_at, ended_at, duration_seconds,
+                SELECT id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, ended_at, duration_seconds,
                        summary_text, transcript, tools_used, transferred_to, metadata, created_at, updated_at
                 FROM call_sessions WHERE id = $1
                 "#,
@@ -64,7 +65,7 @@ impl CallSessionRepository {
         let row = client
             .query_opt(
                 r#"
-                SELECT id, elder_id, twilio_call_sid, from_number, status, started_at, ended_at, duration_seconds,
+                SELECT id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, ended_at, duration_seconds,
                        summary_text, transcript, tools_used, transferred_to, metadata, created_at, updated_at
                 FROM call_sessions WHERE twilio_call_sid = $1
                 "#,
@@ -102,7 +103,7 @@ impl CallSessionRepository {
                 SET status = $2, ended_at = $3, duration_seconds = $4, summary_text = $5,
                     transcript = $6, tools_used = $7, transferred_to = $8, metadata = $9, updated_at = $10
                 WHERE id = $1
-                RETURNING id, elder_id, twilio_call_sid, from_number, status, started_at, ended_at, duration_seconds,
+                RETURNING id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, ended_at, duration_seconds,
                           summary_text, transcript, tools_used, transferred_to, metadata, created_at, updated_at
                 "#,
                 &[&id, &status, &ended_at, &duration_seconds, &summary_text, &transcript, &tools_used, &transferred_to, &metadata, &now],
@@ -154,7 +155,7 @@ impl CallSessionRepository {
         let rows = client
             .query(
                 r#"
-                SELECT id, elder_id, twilio_call_sid, from_number, status, started_at, ended_at, duration_seconds,
+                SELECT id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, ended_at, duration_seconds,
                        summary_text, transcript, tools_used, transferred_to, metadata, created_at, updated_at
                 FROM call_sessions
                 WHERE elder_id = $1
@@ -185,7 +186,7 @@ impl CallSessionRepository {
         let rows = client
             .query(
                 r#"
-                SELECT id, elder_id, twilio_call_sid, from_number, status, started_at, ended_at, duration_seconds,
+                SELECT id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, ended_at, duration_seconds,
                        summary_text, transcript, tools_used, transferred_to, metadata, created_at, updated_at
                 FROM call_sessions
                 ORDER BY started_at DESC
@@ -207,7 +208,7 @@ impl CallSessionRepository {
         let row = client
             .query_opt(
                 r#"
-                SELECT id, elder_id, twilio_call_sid, from_number, status, started_at, ended_at, duration_seconds,
+                SELECT id, elder_id, twilio_call_sid, from_number, status, voice_provider, started_at, ended_at, duration_seconds,
                        summary_text, transcript, tools_used, transferred_to, metadata, created_at, updated_at
                 FROM call_sessions 
                 WHERE elder_id = $1
@@ -246,6 +247,9 @@ fn row_to_call_session(row: &tokio_postgres::Row) -> CallSession {
         status: row.get::<_, String>("status")
             .parse()
             .unwrap_or(CallStatus::Active),
+        voice_provider: row.get::<_, String>("voice_provider")
+            .parse()
+            .unwrap_or(VoiceProvider::OpenaiRealtime),
         started_at: row.get("started_at"),
         ended_at: row.get("ended_at"),
         duration_seconds: row.get("duration_seconds"),

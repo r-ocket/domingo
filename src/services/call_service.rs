@@ -5,7 +5,7 @@ use uuid::Uuid;
 
 use crate::domain::{
     CallSession, CallStatus, CreateCallSessionRequest, DomainResult,
-    UpdateCallSessionRequest,
+    UpdateCallSessionRequest, VoiceProvider,
 };
 use crate::repositories::postgres::{CallSessionRepository, PostgresPool};
 
@@ -19,11 +19,13 @@ impl CallService {
         elder_id: Uuid,
         twilio_call_sid: &str,
         from_number: &str,
+        voice_provider: VoiceProvider,
     ) -> DomainResult<CallSession> {
         let req = CreateCallSessionRequest {
             elder_id,
             twilio_call_sid: twilio_call_sid.to_string(),
             from_number: from_number.to_string(),
+            voice_provider,
         };
         
         CallSessionRepository::create(pool, &req).await

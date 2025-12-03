@@ -15,6 +15,7 @@ mod pages;
 mod billing;
 mod debug;
 mod profile;
+mod mcp_handler;
 
 use axum::{
     routing::{get, post, put, delete},
@@ -118,6 +119,11 @@ pub fn api_routes() -> Router<AppState> {
         .route("/debug/elder", post(debug::create_elder))
         .route("/debug/call-elder", post(debug::initiate_call))
         .route("/debug/health", get(debug::health))
+        
+        // MCP (Model Context Protocol) routes
+        .route("/api/mcp", post(mcp_handler::handle_mcp_request))
+        .route("/api/mcp/tools", get(mcp_handler::list_tools))
+        .route("/api/mcp/execute", post(mcp_handler::execute_tool))
 }
 
 /// Build page routes (HTML)

@@ -21,6 +21,9 @@ pub struct Config {
     // OpenAI
     pub openai_api_key: String,
     
+    // ElevenLabs
+    pub elevenlabs_api_key: String,
+    
     // Uber
     pub uber_client_id: String,
     pub uber_client_secret: String,
@@ -63,6 +66,9 @@ impl Config {
             
             // OpenAI
             openai_api_key: env::var("OPENAI_API_KEY").unwrap_or_default(),
+            
+            // ElevenLabs
+            elevenlabs_api_key: env::var("ELEVENLABS_API_KEY").unwrap_or_default(),
             
             // Uber
             uber_client_id: env::var("UBER_CLIENT_ID").unwrap_or_default(),

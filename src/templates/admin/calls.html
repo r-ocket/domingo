@@ -38,6 +38,16 @@
                                     </template>
                                 </select>
                             </div>
+                            <div class="form-group">
+                                <label class="form-label">Motor de Voz</label>
+                                <select x-model="callForm.voice_provider" class="form-select">
+                                    <option value="openai_realtime">GPT-Realtime (OpenAI)</option>
+                                    <option value="elevenlabs">ElevenLabs (Claude 4.5)</option>
+                                </select>
+                                <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'elevenlabs'">
+                                    Usa Flash 2.5 con voz Juan Campillo y Claude Sonnet 4.5
+                                </p>
+                            </div>
                             <button type="submit" class="btn btn-primary w-full" :disabled="calling || !callForm.elder_id">
                                 <span x-show="!calling">Iniciar Llamada</span>
                                 <span x-show="calling">Iniciando...</span>
@@ -128,6 +138,8 @@
                                     </div>
                                 </div>
                                 <div class="flex items-center gap-2">
+                                    <span class="badge" :class="selectedCall.voice_provider === 'elevenlabs' ? 'badge-purple' : 'badge-blue'"
+                                          x-text="voiceProviderLabel(selectedCall.voice_provider)"></span>
                                     <span class="badge" :class="{
                                         'badge-green': selectedCall.status === 'active',
                                         'badge-yellow': selectedCall.status === 'connecting',
@@ -240,7 +252,7 @@ function callCenter() {
         elders: [],
         selectedCallSid: null,
         activeTab: 'transcript',
-        callForm: { elder_id: '' },
+        callForm: { elder_id: '', voice_provider: 'openai_realtime' },
         calling: false,
         callError: null,
         eventSource: null,
@@ -317,6 +329,7 @@ function callCenter() {
                         elder_id: event.elder_id,
                         elder_name: event.elder_name,
                         elder_phone: event.elder_phone,
+                        voice_provider: event.voice_provider || 'openai_realtime',
                         status: 'connecting',
                         started_at: new Date().toISOString(),
                         transcript: [],
@@ -432,6 +445,7 @@ function callCenter() {
                     this.callError = data.error || 'Error al iniciar llamada';
                 } else {
                     this.callForm.elder_id = '';
+                    this.callForm.voice_provider = 'openai_realtime';
                     // The SSE will handle adding the call to the list
                 }
             } catch (e) {
@@ -474,6 +488,14 @@ function callCenter() {
                 'failed': 'Fallida'
             };
             return labels[status] || status;
+        },
+
+        voiceProviderLabel(provider) {
+            const labels = {
+                'openai_realtime': 'GPT-Realtime',
+                'elevenlabs': 'ElevenLabs'
+            };
+            return labels[provider] || provider || 'GPT-Realtime';
         }
     }
 }

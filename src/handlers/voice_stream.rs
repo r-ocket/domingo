@@ -1,4 +1,4 @@
-//! WebSocket handler for Twilio media stream and OpenAI Realtime relay
+//! WebSocket handler for Twilio media stream - supports OpenAI Realtime and ElevenLabs
 
 use std::sync::Arc;
 use axum::{
@@ -12,13 +12,16 @@ use uuid::Uuid;
 
 use crate::clients::{
     TwilioStreamMessage, TwilioOutboundMedia,
-    RealtimeServerEvent, build_assistant_tools, SYSTEM_PROMPT,
+    RealtimeServerEvent, build_assistant_tools,
+    AgentConfig, ServerMessage as ElevenLabsServerMessage,
+    build_elevenlabs_tools, ELEVENLABS_SYSTEM_PROMPT,
 };
-use crate::domain::{CallStatus, Elder, LocationType};
+use crate::domain::{CallStatus, Elder, LocationType, VoiceProvider};
+use crate::mcp::ToolContext;
 use crate::repositories::postgres::CaregiverRepository;
 use crate::services::{
     CallService, ContactService, ElderService, LocationService,
-    MedicationService, RideService, Speaker,
+    MedicationService, Speaker,
 };
 use crate::AppState;
 
@@ -58,7 +61,10 @@ async fn handle_media_stream(
         }
     };
     
-    tracing::info!("Starting voice session for elder {} ({})", elder.name, elder.id);
+    tracing::info!(
+        "Starting voice session for elder {} ({}) using {:?}",
+        elder.name, elder.id, session.voice_provider
+    );
     
     // Register call with live state store
     state.call_state.start_call(
@@ -71,34 +77,92 @@ async fn handle_media_stream(
     // Build dynamic context with elder's data
     let dynamic_prompt = build_dynamic_prompt(&state, &elder).await;
     
+    // Create tool context for MCP
+    let tool_ctx = ToolContext {
+        db: state.db.clone(),
+        twilio: state.twilio.clone(),
+        uber: state.uber.clone(),
+        elder_id: elder.id,
+        session_id: session.id,
+        call_sid: call_sid.clone(),
+    };
+    
+    // Dispatch to appropriate handler based on voice provider
+    match session.voice_provider {
+        VoiceProvider::OpenaiRealtime => {
+            handle_openai_stream(
+                &state,
+                &mut ws_sender,
+                &mut ws_receiver,
+                &call_sid,
+                &elder,
+                session.id,
+                dynamic_prompt,
+                tool_ctx,
+            ).await;
+        }
+        VoiceProvider::Elevenlabs => {
+            handle_elevenlabs_stream(
+                &state,
+                &mut ws_sender,
+                &mut ws_receiver,
+                &call_sid,
+                &elder,
+                session.id,
+                dynamic_prompt,
+                tool_ctx,
+            ).await;
+        }
+    }
+    
+    // End call in live state store
+    state.call_state.end_call(&call_sid, false);
+    
+    tracing::info!("Voice session ended for call {}", call_sid);
+}
+
+/// Handle OpenAI Realtime voice stream
+async fn handle_openai_stream(
+    state: &AppState,
+    ws_sender: &mut futures_util::stream::SplitSink<axum::extract::ws::WebSocket, axum::extract::ws::Message>,
+    ws_receiver: &mut futures_util::stream::SplitStream<axum::extract::ws::WebSocket>,
+    call_sid: &str,
+    elder: &Elder,
+    session_id: Uuid,
+    dynamic_prompt: String,
+    tool_ctx: ToolContext,
+) {
     // Connect to OpenAI Realtime
     let openai_session = match state.openai.connect_realtime(&dynamic_prompt, build_assistant_tools()).await {
         Ok(s) => s,
         Err(e) => {
             tracing::error!("Failed to connect to OpenAI Realtime: {}", e);
-            state.call_state.end_call(&call_sid, true);
+            state.call_state.end_call(call_sid, true);
             return;
         }
     };
     
-    // Mark call as active now that OpenAI is connected
-    state.call_state.set_active(&call_sid);
+    // Mark call as active
+    state.call_state.set_active(call_sid);
     
     // Track stream SID for sending audio back
     let stream_sid = Arc::new(tokio::sync::RwLock::new(String::new()));
     let stream_sid_clone = stream_sid.clone();
     
-    // Shared transcript accumulator (for database storage)
+    // Shared transcript accumulator
     let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
     let transcript_clone = transcript.clone();
     
-    // Channel for sending audio to Twilio (OpenAI -> Twilio)
+    // Channel for sending audio to Twilio
     let (twilio_tx, mut twilio_rx) = mpsc::channel::<String>(100);
     
-    // Channel for sending audio to OpenAI (Twilio -> OpenAI)
+    // Channel for sending audio to OpenAI
     let (openai_audio_tx, mut openai_audio_rx) = mpsc::channel::<String>(100);
     
-    // Spawn task to handle outbound audio to Twilio
+    // Take ownership of ws_sender for the outbound task
+    // We need to use channels since we can't clone ws_sender
+    let (ws_out_tx, mut ws_out_rx) = mpsc::channel::<String>(100);
+    
     let stream_sid_for_sender = stream_sid.clone();
     tokio::spawn(async move {
         while let Some(audio_base64) = twilio_rx.recv().await {
@@ -106,7 +170,7 @@ async fn handle_media_stream(
             if !sid.is_empty() {
                 let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
                 if let Ok(json) = serde_json::to_string(&msg) {
-                    if ws_sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {
+                    if ws_out_tx.send(json).await.is_err() {
                         break;
                     }
                 }
@@ -116,23 +180,18 @@ async fn handle_media_stream(
     
     // Clone state for the OpenAI handler
     let state_clone = state.clone();
-    let elder_id = elder.id;
-    let session_id = session.id;
-    let call_sid_clone = call_sid.clone();
-    let call_sid_for_openai = call_sid.clone();
+    let call_sid_for_openai = call_sid.to_string();
+    let tool_ctx_clone = tool_ctx.clone();
     
-    // Spawn task to handle OpenAI communication (both sending audio and receiving events)
+    // Spawn task for OpenAI communication
     let mut openai_session = openai_session;
     let twilio_tx_clone = twilio_tx.clone();
     tokio::spawn(async move {
-        // Track partial transcript for combining
         let mut current_assistant_text = String::new();
         
         loop {
             tokio::select! {
-                // Handle incoming audio from Twilio -> forward to OpenAI
                 Some(audio) = openai_audio_rx.recv() => {
-                    // Check for special greeting trigger signal
                     if audio == "__GREETING__" {
                         tracing::info!("Triggering initial greeting");
                         if let Err(e) = openai_session.trigger_initial_greeting().await {
@@ -146,52 +205,44 @@ async fn handle_media_stream(
                         break;
                     }
                 }
-                // Handle events from OpenAI
                 Some(event) = openai_session.recv_event() => {
                     match event {
                         RealtimeServerEvent::ResponseAudioDelta { delta } => {
-                            // Send audio to Twilio
                             let _ = twilio_tx_clone.send(delta).await;
                         }
                         RealtimeServerEvent::ResponseAudioTranscriptDelta { delta } => {
-                            // Accumulate transcript for database
                             {
                                 let mut t = transcript_clone.lock().await;
                                 t.push_str(&delta);
                             }
-                            
-                            // Add to current assistant text and broadcast partial
                             current_assistant_text.push_str(&delta);
                             state_clone.call_state.add_transcript(
                                 &call_sid_for_openai,
                                 Speaker::Assistant,
                                 current_assistant_text.clone(),
-                                true, // partial
+                                true,
                             );
                         }
                         RealtimeServerEvent::ResponseAudioTranscriptDone { transcript: full_text } => {
-                            // Final transcript for this response - broadcast as complete
                             state_clone.call_state.add_transcript(
                                 &call_sid_for_openai,
                                 Speaker::Assistant,
                                 full_text,
-                                false, // not partial
+                                false,
                             );
                             current_assistant_text.clear();
                         }
                         RealtimeServerEvent::ConversationItemInputAudioTranscriptionCompleted { transcript: user_text } => {
-                            // User's speech was transcribed
                             state_clone.call_state.add_transcript(
                                 &call_sid_for_openai,
                                 Speaker::User,
                                 user_text,
-                                false, // complete
+                                false,
                             );
                         }
                         RealtimeServerEvent::ResponseFunctionCallArgumentsDone { call_id, name, arguments } => {
                             tracing::info!("Function call: {} with args: {}", name, arguments);
                             
-                            // Broadcast tool call started
                             state_clone.call_state.add_tool_call(
                                 &call_sid_for_openai,
                                 call_id.clone(),
@@ -199,29 +250,32 @@ async fn handle_media_stream(
                                 arguments.clone(),
                             );
                             
-                            // Execute the function
-                            let result = execute_tool(
-                                &state_clone,
-                                elder_id,
-                                &name,
-                                &arguments,
-                                session_id,
-                                &call_sid_clone,
-                            ).await;
+                            // Execute via MCP tools
+                            let args: serde_json::Value = serde_json::from_str(&arguments).unwrap_or_default();
+                            let result = crate::mcp::execute_tool(&tool_ctx_clone, &name, args).await;
                             
-                            // Record tool usage
                             let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
                             
-                            // Broadcast tool call completed
-                            let result_str = serde_json::to_string(&result).unwrap_or_default();
+                            // Convert MCP result to JSON value
+                            let result_json: serde_json::Value = if let Some(text_content) = result.content.first() {
+                                match text_content {
+                                    crate::mcp::ToolResultContent::Text { text } => {
+                                        serde_json::from_str(text).unwrap_or(json!({ "result": text }))
+                                    }
+                                    _ => json!({ "error": "Unexpected result type" }),
+                                }
+                            } else {
+                                json!({ "error": "No result" })
+                            };
+                            
+                            let result_str = serde_json::to_string(&result_json).unwrap_or_default();
                             state_clone.call_state.complete_tool_call(
                                 &call_sid_for_openai,
                                 &call_id,
                                 result_str,
                             );
                             
-                            // Send result back to OpenAI
-                            if let Err(e) = openai_session.send_function_result(&call_id, result).await {
+                            if let Err(e) = openai_session.send_function_result(&call_id, result_json).await {
                                 tracing::error!("Failed to send function result: {}", e);
                             }
                         }
@@ -236,28 +290,30 @@ async fn handle_media_stream(
         }
     });
     
-    // Handle incoming Twilio messages
-    while let Some(msg) = ws_receiver.next().await {
+    // Handle Twilio messages and outbound audio
+    loop {
+        tokio::select! {
+            Some(json) = ws_out_rx.recv() => {
+                if ws_sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {
+                    break;
+                }
+            }
+            msg = ws_receiver.next() => {
         match msg {
-            Ok(axum::extract::ws::Message::Text(text)) => {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
                 if let Ok(twilio_msg) = serde_json::from_str::<TwilioStreamMessage>(&text) {
                     match twilio_msg {
                         TwilioStreamMessage::Start { stream_sid: sid, start } => {
                             *stream_sid_clone.write().await = sid;
                             tracing::info!("Stream started for call {}", start.call_sid);
                             
-                            // Trigger initial greeting after a short delay
-                            // This gives the caller a moment after the ring stops
                             let greeting_tx = openai_audio_tx.clone();
                             tokio::spawn(async move {
-                                // Wait 500ms before starting the greeting
                                 tokio::time::sleep(tokio::time::Duration::from_millis(500)).await;
-                                // Send empty signal to trigger greeting (handled in OpenAI task)
                                 let _ = greeting_tx.send("__GREETING__".to_string()).await;
                             });
                         }
                         TwilioStreamMessage::Media { media, .. } => {
-                            // Forward audio to OpenAI (g711_ulaw format - no conversion needed)
                             let _ = openai_audio_tx.send(media.payload.clone()).await;
                         }
                         TwilioStreamMessage::Stop { .. } => {
@@ -268,112 +324,254 @@ async fn handle_media_stream(
                     }
                 }
             }
-            Ok(axum::extract::ws::Message::Close(_)) => {
+                    Some(Ok(axum::extract::ws::Message::Close(_))) => {
                 tracing::info!("WebSocket closed");
                 break;
             }
-            Err(e) => {
+                    Some(Err(e)) => {
                 tracing::error!("WebSocket error: {}", e);
                 break;
             }
+                    None => break,
             _ => {}
+                }
+            }
         }
     }
     
-    // Get the accumulated transcript
+    // Get transcript and end session
     let final_transcript = {
         let t = transcript.lock().await;
         if t.is_empty() { None } else { Some(t.clone()) }
     };
     
-    // End the call session with transcript
     let _ = CallService::end_session(
         &state.db,
-        session.id,
+        session_id,
         CallStatus::Completed,
         None,
         final_transcript,
     ).await;
-    
-    // End call in live state store
-    state.call_state.end_call(&call_sid, false);
-    
-    tracing::info!("Voice session ended for call {}", call_sid);
 }
 
-/// Execute a tool call from the AI
-async fn execute_tool(
+/// Handle ElevenLabs Conversational AI voice stream
+async fn handle_elevenlabs_stream(
     state: &AppState,
-    elder_id: Uuid,
-    tool_name: &str,
-    arguments: &str,
-    session_id: Uuid,
+    ws_sender: &mut futures_util::stream::SplitSink<axum::extract::ws::WebSocket, axum::extract::ws::Message>,
+    ws_receiver: &mut futures_util::stream::SplitStream<axum::extract::ws::WebSocket>,
     call_sid: &str,
-) -> serde_json::Value {
-    let args: serde_json::Value = serde_json::from_str(arguments).unwrap_or_default();
+    elder: &Elder,
+    session_id: Uuid,
+    dynamic_prompt: String,
+    tool_ctx: ToolContext,
+) {
+    // Build agent config with dynamic prompt
+    let full_prompt = format!("{}\n\n---\n\n{}", ELEVENLABS_SYSTEM_PROMPT, dynamic_prompt);
+    let first_message = Some(format!(
+        "Hola {}. Soy Domingo, tu asistente de voz. ¿En qué puedo ayudarte hoy?",
+        elder.name
+    ));
     
-    match tool_name {
-        "request_ride" => {
-            let to_location = args["to_location"].as_str().unwrap_or("");
-            let from_location = args["from_location"].as_str(); // Optional - defaults to home
-            
-            match RideService::book_ride_flexible(&state.db, &state.uber, elder_id, from_location, to_location).await {
-                Ok(ride_info) => {
-                    json!({
-                        "success": true,
-                        "mensaje": format!("He pedido un Uber de {} a {}", 
-                            ride_info.pickup_name, 
-                            ride_info.destination_name),
-                        "status": ride_info.status.to_string(),
-                        "driver": ride_info.driver_name,
-                        "vehicle": ride_info.vehicle_description,
-                        "eta_minutes": ride_info.eta_minutes,
-                    })
-                }
-                Err(e) => json!({ "error": e.to_string() }),
-            }
+    let agent_config = AgentConfig {
+        system_prompt: full_prompt,
+        first_message,
+        tools: build_elevenlabs_tools(),
+    };
+    
+    // Connect to ElevenLabs
+    let elevenlabs_session = match state.elevenlabs.connect_conversation(agent_config).await {
+        Ok(s) => s,
+        Err(e) => {
+            tracing::error!("Failed to connect to ElevenLabs: {}", e);
+            state.call_state.end_call(call_sid, true);
+            return;
         }
-        
-        "call_contact" => {
-            // Use contact_name parameter (new) or fall back to name_or_relationship (old)
-            let query = args["contact_name"].as_str()
-                .or_else(|| args["name_or_relationship"].as_str())
-                .unwrap_or("");
-            
-            match ContactService::search_contacts(&state.db, elder_id, query).await {
-                Ok(contacts) if !contacts.is_empty() => {
-                    let contact = &contacts[0];
-                    
-                    tracing::info!("Transferring call to {} at {}", contact.name, contact.phone);
-                    
-                    // Update call to transfer
-                    let twiml = state.twilio.generate_dial_twiml(&contact.phone);
-                    
-                    match state.twilio.update_call(call_sid, &twiml).await {
-                        Ok(_) => {
-                            // Mark session as transferred
-                            let _ = CallService::mark_transferred(
-                                &state.db,
-                                session_id,
-                                &contact.name,
-                            ).await;
-                            
-                            json!({
-                                "success": true,
-                                "mensaje": format!("Transfiriendo la llamada a {}", contact.name),
-                                "transferring_to": contact.name,
-                            })
-                        }
-                        Err(e) => json!({ "error": format!("No pude transferir la llamada: {}", e) }),
+    };
+    
+    // Mark call as active
+    state.call_state.set_active(call_sid);
+    
+    // Track stream SID
+    let stream_sid = Arc::new(tokio::sync::RwLock::new(String::new()));
+    let stream_sid_clone = stream_sid.clone();
+    
+    // Shared transcript
+    let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
+    let transcript_clone = transcript.clone();
+    
+    // Channels
+    let (twilio_tx, mut twilio_rx) = mpsc::channel::<String>(100);
+    let (elevenlabs_audio_tx, mut elevenlabs_audio_rx) = mpsc::channel::<String>(100);
+    let (ws_out_tx, mut ws_out_rx) = mpsc::channel::<String>(100);
+    
+    // Outbound audio task
+    let stream_sid_for_sender = stream_sid.clone();
+    tokio::spawn(async move {
+        while let Some(audio_base64) = twilio_rx.recv().await {
+            let sid = stream_sid_for_sender.read().await.clone();
+            if !sid.is_empty() {
+                // Note: ElevenLabs returns PCM audio which may need conversion to g711_ulaw for Twilio
+                // For now, we send directly and may need to add audio conversion
+                let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    if ws_out_tx.send(json).await.is_err() {
+                        break;
                     }
                 }
-                Ok(_) => json!({ "error": format!("No encontré un contacto llamado '{}'. Revisa los nombres en la lista de contactos.", query) }),
-                Err(e) => json!({ "error": e.to_string() }),
             }
         }
-        
-        _ => json!({ "error": format!("Herramienta desconocida: {}", tool_name) }),
+    });
+    
+    // Clone state for ElevenLabs handler
+    let state_clone = state.clone();
+    let call_sid_for_eleven = call_sid.to_string();
+    let tool_ctx_clone = tool_ctx.clone();
+    
+    // ElevenLabs event handler
+    let mut elevenlabs_session = elevenlabs_session;
+    let twilio_tx_clone = twilio_tx.clone();
+    tokio::spawn(async move {
+        loop {
+            tokio::select! {
+                Some(audio) = elevenlabs_audio_rx.recv() => {
+                    // Note: May need to convert from g711_ulaw to PCM16 for ElevenLabs
+                    if let Err(e) = elevenlabs_session.send_audio(&audio).await {
+                        tracing::error!("Failed to send audio to ElevenLabs: {}", e);
+                        break;
+                    }
+                }
+                event = elevenlabs_session.recv_event() => {
+                    match event {
+                        Some(ElevenLabsServerMessage::Audio { audio }) => {
+                            let _ = twilio_tx_clone.send(audio).await;
+                        }
+                        Some(ElevenLabsServerMessage::AgentTranscript { text }) => {
+                            {
+                                let mut t = transcript_clone.lock().await;
+                                t.push_str(&text);
+                                t.push(' ');
+                            }
+                            state_clone.call_state.add_transcript(
+                                &call_sid_for_eleven,
+                                Speaker::Assistant,
+                                text,
+                                false,
+                            );
+                        }
+                        Some(ElevenLabsServerMessage::UserTranscript { text }) => {
+                            state_clone.call_state.add_transcript(
+                                &call_sid_for_eleven,
+                                Speaker::User,
+                                text,
+                                false,
+                            );
+                        }
+                        Some(ElevenLabsServerMessage::ClientToolCall { tool_call_id, tool_name, parameters }) => {
+                            tracing::info!("ElevenLabs tool call: {} with params: {:?}", tool_name, parameters);
+                            
+                            state_clone.call_state.add_tool_call(
+                                &call_sid_for_eleven,
+                                tool_call_id.clone(),
+                                tool_name.clone(),
+                                serde_json::to_string(&parameters).unwrap_or_default(),
+                            );
+                            
+                            // Execute via MCP
+                            let result = crate::mcp::execute_tool(&tool_ctx_clone, &tool_name, parameters).await;
+                            
+                            let _ = CallService::record_tool_usage(&state_clone.db, session_id, &tool_name).await;
+                            
+                            // Convert result to JSON
+                            let result_json: serde_json::Value = if let Some(text_content) = result.content.first() {
+                                match text_content {
+                                    crate::mcp::ToolResultContent::Text { text } => {
+                                        serde_json::from_str(text).unwrap_or(json!({ "result": text }))
+                                    }
+                                    _ => json!({ "error": "Unexpected result type" }),
+                                }
+                            } else {
+                                json!({ "error": "No result" })
+                            };
+                            
+                            let result_str = serde_json::to_string(&result_json).unwrap_or_default();
+                            state_clone.call_state.complete_tool_call(
+                                &call_sid_for_eleven,
+                                &tool_call_id,
+                                result_str,
+                            );
+                            
+                            // Send result back to ElevenLabs
+                            if let Err(e) = elevenlabs_session.send_tool_result(&tool_call_id, result_json).await {
+                                tracing::error!("Failed to send tool result to ElevenLabs: {}", e);
+                            }
+                        }
+                        Some(ElevenLabsServerMessage::Error { message, code }) => {
+                            tracing::error!("ElevenLabs error: {} (code: {:?})", message, code);
+                        }
+                        None => break,
+                        _ => {}
+                    }
+                }
+            }
+        }
+    });
+    
+    // Handle Twilio messages
+    loop {
+        tokio::select! {
+            Some(json) = ws_out_rx.recv() => {
+                if ws_sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {
+                    break;
+                }
+            }
+            msg = ws_receiver.next() => {
+                match msg {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        if let Ok(twilio_msg) = serde_json::from_str::<TwilioStreamMessage>(&text) {
+                            match twilio_msg {
+                                TwilioStreamMessage::Start { stream_sid: sid, start } => {
+                                    *stream_sid_clone.write().await = sid;
+                                    tracing::info!("Stream started for call {}", start.call_sid);
+                                }
+                                TwilioStreamMessage::Media { media, .. } => {
+                                    let _ = elevenlabs_audio_tx.send(media.payload.clone()).await;
+                                }
+                                TwilioStreamMessage::Stop { .. } => {
+                                    tracing::info!("Stream stopped");
+                                    break;
+                                }
+                                _ => {}
+                            }
+                        }
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) => {
+                        tracing::info!("WebSocket closed");
+                        break;
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("WebSocket error: {}", e);
+                        break;
+                    }
+                    None => break,
+                    _ => {}
+                }
+            }
+        }
     }
+    
+    // End session
+    let final_transcript = {
+        let t = transcript.lock().await;
+        if t.is_empty() { None } else { Some(t.clone()) }
+    };
+    
+    let _ = CallService::end_session(
+        &state.db,
+        session_id,
+        CallStatus::Completed,
+        None,
+        final_transcript,
+    ).await;
 }
 
 /// Build a dynamic system prompt that includes the elder's specific context
@@ -496,8 +694,5 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
         }
     }
     
-    // Combine base prompt with dynamic context
-    let dynamic_context = context_parts.join("\n\n");
-    
-    format!("{}\n\n---\n\n{}", SYSTEM_PROMPT, dynamic_context)
+    context_parts.join("\n\n")
 }

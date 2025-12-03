@@ -9,7 +9,7 @@ use axum::{
 use serde::Deserialize;
 
 use crate::clients::{IncomingCallPayload, CallStatusPayload};
-use crate::domain::CallStatus;
+use crate::domain::{CallStatus, VoiceProvider};
 use crate::services::{CallService, ElderService};
 use crate::AppState;
 
@@ -24,12 +24,13 @@ pub async fn incoming_call(
     // Look up elder by phone number
     match ElderService::get_elder_by_phone(&state.db, &payload.from).await {
         Ok(elder) => {
-            // Create call session
+            // Create call session (incoming calls default to OpenAI Realtime)
             if let Err(e) = CallService::start_session(
                 &state.db,
                 elder.id,
                 &payload.call_sid,
                 &payload.from,
+                VoiceProvider::OpenaiRealtime,
             ).await {
                 tracing::error!("Failed to create call session: {}", e);
             }
@@ -185,15 +186,24 @@ pub struct ReminderConfirmForm {
 #[derive(Debug, Deserialize)]
 pub struct OutboundVoiceParams {
     pub elder_id: String,
+    /// Voice provider to use: "openai_realtime" or "elevenlabs"
+    #[serde(default)]
+    pub voice_provider: Option<String>,
 }
 
-#[tracing::instrument(skip(state), fields(elder_id = %params.elder_id))]
+#[tracing::instrument(skip(state), fields(elder_id = %params.elder_id, voice_provider = ?params.voice_provider))]
 pub async fn outbound_voice(
     State(state): State<AppState>,
     Query(params): Query<OutboundVoiceParams>,
     Form(payload): Form<IncomingCallPayload>,
 ) -> impl IntoResponse {
     tracing::info!("Processing outbound voice call");
+    
+    // Parse voice provider (default to OpenAI Realtime)
+    let voice_provider = params.voice_provider
+        .as_deref()
+        .and_then(|s| s.parse().ok())
+        .unwrap_or(VoiceProvider::OpenaiRealtime);
     
     // Parse elder ID
     let elder_id = match uuid::Uuid::parse_str(&params.elder_id) {
@@ -217,6 +227,7 @@ pub async fn outbound_voice(
                 elder.id,
                 &payload.call_sid,
                 &payload.to,
+                voice_provider,
             ).await {
                 tracing::error!("Failed to create call session: {}", e);
             }

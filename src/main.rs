@@ -18,6 +18,7 @@ mod repositories;
 mod clients;
 mod handlers;
 mod middleware;
+mod mcp;
 
 use services::{ReminderScheduler, CallStateStore, SharedCallStateStore};
 
@@ -31,6 +32,7 @@ pub struct AppState {
     pub db: PostgresPool,
     pub twilio: Arc<clients::TwilioClient>,
     pub openai: Arc<clients::OpenAIClient>,
+    pub elevenlabs: Arc<clients::ElevenLabsClient>,
     pub uber: Arc<clients::UberClient>,
     pub stripe: Arc<clients::StripeClient>,
     pub templates: Arc<tera::Tera>,
@@ -53,6 +55,8 @@ impl AppState {
         ));
         
         let openai = Arc::new(clients::OpenAIClient::new(&config.openai_api_key));
+        
+        let elevenlabs = Arc::new(clients::ElevenLabsClient::new(&config.elevenlabs_api_key));
         
         let uber = Arc::new(clients::UberClient::new(
             &config.uber_client_id,
@@ -78,6 +82,7 @@ impl AppState {
             db,
             twilio,
             openai,
+            elevenlabs,
             uber,
             stripe,
             templates,

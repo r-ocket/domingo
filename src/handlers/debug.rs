@@ -177,6 +177,9 @@ pub async fn create_elder(
 #[derive(Debug, Deserialize)]
 pub struct InitiateCallRequest {
     pub elder_id: Uuid,
+    /// Voice provider to use: "openai_realtime" or "elevenlabs" (defaults to openai_realtime)
+    #[serde(default)]
+    pub voice_provider: Option<String>,
 }
 
 /// Response for initiated call
@@ -186,35 +189,42 @@ pub struct InitiateCallResponse {
     pub status: String,
     pub elder_name: String,
     pub phone_number: String,
+    pub voice_provider: String,
 }
 
 /// Initiate an outbound call to an elder (no auth required)
-#[tracing::instrument(skip(state), fields(elder_id = %req.elder_id))]
+#[tracing::instrument(skip(state), fields(elder_id = %req.elder_id, voice_provider = ?req.voice_provider))]
 pub async fn initiate_call(
     State(state): State<AppState>,
     Json(req): Json<InitiateCallRequest>,
 ) -> Result<impl IntoResponse, DebugError> {
     tracing::info!("Initiating outbound call to elder");
     
+    // Parse voice provider (default to OpenAI Realtime)
+    let voice_provider = req.voice_provider
+        .as_deref()
+        .unwrap_or("openai_realtime");
+    
     // Look up elder
     let elder = ElderRepository::find_by_id(&state.db, req.elder_id).await
         .map_err(|e| DebugError::Domain(format!("Elder not found: {}", e)))?;
     
-    // Build the TwiML URL for the outbound call
-    let twiml_url = format!("{}/api/twilio/outbound-voice?elder_id={}", 
-        state.config.base_url, req.elder_id);
+    // Build the TwiML URL for the outbound call (include voice_provider)
+    let twiml_url = format!("{}/api/twilio/outbound-voice?elder_id={}&voice_provider={}", 
+        state.config.base_url, req.elder_id, voice_provider);
     
     // Initiate the call via Twilio
     let call_response = state.twilio.make_call(&elder.phone_number, &twiml_url).await
         .map_err(|e| DebugError::Twilio(e))?;
     
-    tracing::info!(call_sid = %call_response.sid, "Outbound call initiated");
+    tracing::info!(call_sid = %call_response.sid, voice_provider = %voice_provider, "Outbound call initiated");
     
     Ok((StatusCode::OK, Json(InitiateCallResponse {
         call_sid: call_response.sid,
         status: call_response.status,
         elder_name: elder.name,
         phone_number: elder.phone_number,
+        voice_provider: voice_provider.to_string(),
     })))
 }
 
