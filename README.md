@@ -154,39 +154,6 @@ You'll need accounts and API keys for:
 
 Create a `.env` file in the project root:
 
-```bash
-# Server
-HOST=0.0.0.0
-PORT=8080
-BASE_URL=https://your-domain.com  # Public URL for webhooks
-
-# Database
-DATABASE_URL=postgres://user:password@localhost:5432/asistente_domingo
-
-# Session
-SESSION_SECRET=your-32-char-random-secret-here
-
-# Twilio
-TWILIO_ACCOUNT_SID=ACxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_AUTH_TOKEN=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-TWILIO_PHONE_NUMBER=+1234567890
-
-# OpenAI
-OPENAI_API_KEY=sk-xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-# Uber
-UBER_CLIENT_ID=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-UBER_CLIENT_SECRET=xxxxxxxxxxxxxxxxxxxxxxxxxxxxxxxx
-
-# Stripe
-STRIPE_SECRET_KEY=sk_test_xxxxxxxxxxxxxxxxxxxxxxxx
-STRIPE_WEBHOOK_SECRET=whsec_xxxxxxxxxxxxxxxxxxxxxxxx
-
-# Seed Admin (optional - creates on startup if DB empty)
-SEED_ADMIN_EMAIL=admin@example.com
-SEED_ADMIN_PASSWORD=your-secure-password
-```
-
 ### Quick Start (Development)
 
 The fastest way to get running locally:
