@@ -25,7 +25,8 @@ impl OpenAIClient {
         system_prompt: &str,
         tools: Vec<ToolDefinition>,
     ) -> Result<RealtimeSession, OpenAIError> {
-        let url = "wss://api.openai.com/v1/realtime?model=gpt-4o-realtime-preview-2024-10-01";
+        // Using the stable Realtime model (August 2025)
+        let url = "wss://api.openai.com/v1/realtime?model=gpt-realtime-2025-08-28";
         
         let request = http::Request::builder()
             .uri(url)
@@ -99,26 +100,58 @@ pub struct RealtimeSession {
 
 impl RealtimeSession {
     /// Configure the session with system prompt and tools
+    /// 
+    /// Best practices applied:
+    /// - Server VAD with tuned thresholds for elderly users (longer silence tolerance)
+    /// - Spanish language hint for transcription accuracy
+    /// - Moderate temperature for natural but consistent responses
+    /// - Token limits to manage costs
     async fn configure(&self, system_prompt: &str, tools: Vec<ToolDefinition>) -> Result<(), OpenAIError> {
         let event = RealtimeClientEvent::SessionUpdate {
             session: SessionConfig {
+                // Support both text and audio modalities
                 modalities: vec!["text".to_string(), "audio".to_string()],
                 instructions: system_prompt.to_string(),
-                voice: "alloy".to_string(),
-            input_audio_format: "g711_ulaw".to_string(),
-            output_audio_format: "g711_ulaw".to_string(),
+                // "coral" voice - warm, friendly, clear pronunciation
+                // Good for elderly care applications
+                voice: "coral".to_string(),
+                // g711_ulaw format for Twilio telephony compatibility
+                // Note: For WebRTC/browser, prefer "pcm16" or "opus" for lower latency
+                input_audio_format: "g711_ulaw".to_string(),
+                output_audio_format: "g711_ulaw".to_string(),
+                // Transcription settings for Spanish (Mexico)
                 input_audio_transcription: Some(InputAudioTranscription {
-                    model: "whisper-1".to_string(),
+                    // gpt-4o-transcribe is faster and more accurate than whisper-1
+                    model: "gpt-4o-transcribe".to_string(),
+                    // Language hint improves accuracy for Spanish speakers
+                    language: Some("es".to_string()),
+                    // Transcription prompt to handle elderly speech patterns
+                    prompt: Some("Transcripción de llamada telefónica con adulto mayor mexicano. Puede haber pausas largas, repeticiones, o habla lenta.".to_string()),
                 }),
+                // Server-side Voice Activity Detection
+                // Tuned for elderly users who may speak slower with longer pauses
                 turn_detection: Some(TurnDetection {
                     r#type: "server_vad".to_string(),
-                    threshold: 0.5,
-                    prefix_padding_ms: 300,
-                    silence_duration_ms: 500,
+                    // Lower threshold = more sensitive to quiet speech
+                    threshold: 0.4,
+                    // Include 400ms before speech starts (captures "um", "eh")
+                    prefix_padding_ms: 400,
+                    // Wait 800ms of silence before ending turn
+                    // Longer than default to accommodate slower speakers
+                    silence_duration_ms: 800,
+                    // Auto-create response when turn ends
+                    create_response: Some(true),
                 }),
                 tools,
+                // "auto" lets model decide when to use tools
+                // Use "required" to force tool use, "none" to disable
                 tool_choice: "auto".to_string(),
-                temperature: 0.8,
+                // Temperature 0.7-0.8 balances consistency with natural variation
+                temperature: 0.7,
+                // Limit response tokens to control costs
+                // 1024 is plenty for conversational responses
+                // Increase if responses get cut off
+                max_response_output_tokens: Some(1024),
             },
         };
         
@@ -234,19 +267,36 @@ pub struct SessionConfig {
     pub tools: Vec<ToolDefinition>,
     pub tool_choice: String,
     pub temperature: f32,
+    /// Max tokens for model response output (default: inf, set to control costs)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub max_response_output_tokens: Option<i32>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct InputAudioTranscription {
+    /// Transcription model: "gpt-4o-transcribe" (recommended) or "whisper-1"
     pub model: String,
+    /// Language hint for better transcription accuracy (e.g., "es" for Spanish)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub language: Option<String>,
+    /// Custom prompt to guide transcription style
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub prompt: Option<String>,
 }
 
 #[derive(Debug, Serialize)]
 pub struct TurnDetection {
+    /// "server_vad" for voice activity detection
     pub r#type: String,
+    /// VAD threshold (0.0-1.0) - lower = more sensitive to speech
     pub threshold: f32,
+    /// Audio to include before detected speech (ms)
     pub prefix_padding_ms: i32,
+    /// Silence duration before turn ends (ms) - longer for elderly users
     pub silence_duration_ms: i32,
+    /// Whether to auto-create response after turn ends (default: true)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub create_response: Option<bool>,
 }
 
 #[derive(Debug, Serialize)]
@@ -373,6 +423,12 @@ pub enum RealtimeServerEvent {
     #[serde(rename = "input_audio_buffer.committed")]
     InputAudioBufferCommitted,
     
+    #[serde(rename = "conversation.item.input_audio_transcription.completed")]
+    ConversationItemInputAudioTranscriptionCompleted { transcript: String },
+    
+    #[serde(rename = "conversation.item.input_audio_transcription.failed")]
+    ConversationItemInputAudioTranscriptionFailed { error: serde_json::Value },
+    
     #[serde(rename = "error")]
     Error { error: OpenAIApiError },
     
@@ -462,24 +518,66 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
 }
 
 /// System prompt for the voice assistant (Spanish - Mexico)
-pub const SYSTEM_PROMPT: &str = r#"Eres un asistente telefónico amable y paciente para adultos mayores en México. Habla despacio y con claridad en español mexicano. Ayúdalos con:
+/// Following OpenAI Realtime prompting best practices:
+/// - Clear role and personality definition
+/// - Explicit behavioral guidelines with emphasis (CAPS)
+/// - Sample phrases for natural variation
+/// - Tool usage instructions with user preambles
+/// - Safety boundaries clearly stated
+pub const SYSTEM_PROMPT: &str = r#"## Identidad
+Eres Domingo, un asistente telefónico cálido y paciente diseñado para adultos mayores en México. Tu nombre viene de "domingo" porque siempre estás disponible para ayudar, como un día de descanso con la familia. Tu voz es reconfortante como la de un familiar querido. Hablas español mexicano con claridad y a un ritmo pausado.
 
-1. Reservar viajes a ubicaciones guardadas (usando request_ride)
-2. Recordatorios y horarios de medicamentos (usando get_upcoming_medications o get_medication_schedule)
-3. Comunicarse con sus contactos (usando get_contact_info o call_contact para transferir la llamada)
+## Estilo de Comunicación
+- Usa oraciones cortas y simples
+- Habla despacio y pronuncia claramente
+- Varía tus respuestas para sonar natural, no robótico
+- Usa expresiones cariñosas ocasionalmente: "¿Cómo le puedo ayudar?", "Con mucho gusto", "Claro que sí"
+- Si no entendiste algo, di variaciones como:
+  * "Disculpe, no escuché bien. ¿Podría repetirme?"
+  * "Perdón, ¿me lo puede decir otra vez?"
+  * "No le entendí bien. ¿Qué me decía?"
 
-Lineamientos:
-- Sé cálido, amigable y reconfortante
-- Habla con oraciones simples y claras
-- Confirma las acciones importantes antes de realizarlas (como reservar un viaje)
-- Si el usuario parece confundido, aclara con gentileza
-- Nunca des consejos médicos más allá de leer su horario de medicamentos
-- Si dicen "ayuda" o "emergencia", ofrece llamar a su contacto de emergencia
+## Capacidades
+Puedes ayudar con:
+1. **Viajes**: Reservar un Uber a lugares guardados (doctor, supermercado, casa de familiares)
+2. **Medicamentos**: Recordar qué medicinas tomar y cuándo
+3. **Contactos**: Buscar información de contactos o transferir la llamada
 
-Al usar herramientas:
-- Para viajes: Primero obtén sus ubicaciones guardadas si no las conoces, luego solicita el viaje
-- Para medicamentos: Diles qué necesitan tomar y cuándo
-- Para contactos: Puedes leerles el número de teléfono u ofrecerles conectarlos directamente
+## Uso de Herramientas
+Cuando uses una herramienta, SIEMPRE avisa al usuario primero:
+- Antes de buscar ubicaciones: "Déjeme revisar sus lugares guardados..."
+- Antes de pedir un viaje: "Perfecto, voy a solicitar su viaje a [destino]..."
+- Antes de buscar medicamentos: "Un momento, voy a revisar sus medicamentos..."
+- Antes de buscar contactos: "Déjeme buscar ese contacto..."
+- Antes de transferir llamada: "Lo voy a comunicar con [nombre], un momento por favor..."
 
-Siempre sé paciente - el usuario puede necesitar tiempo extra para responder o puede repetirse."#;
+Para viajes:
+1. Si no conoces los lugares, primero usa get_saved_locations
+2. Confirma el destino antes de solicitar: "¿Quiere que le pida un Uber a [lugar]?"
+3. Solo después de confirmación usa request_ride
+
+## REGLAS IMPORTANTES (NUNCA ROMPER)
+- NUNCA des consejos médicos ni interpretes síntomas
+- NUNCA compartas información personal con terceros
+- NUNCA inventes información que no tengas
+- Si alguien dice "AYUDA", "EMERGENCIA" o suena muy angustiado, ofrece INMEDIATAMENTE llamar a su contacto de emergencia
+- Si no puedes ayudar con algo, sé honesto: "Disculpe, eso no lo puedo hacer, pero puedo comunicarlo con alguien que sí pueda ayudarle"
+
+## Manejo de Situaciones
+- **Usuario confundido**: Repite con paciencia, simplifica, ofrece opciones concretas
+- **Usuario repite lo mismo**: Responde con paciencia sin mostrar frustración
+- **Silencio prolongado**: Pregunta suavemente "¿Sigue ahí?" o "¿En qué le puedo ayudar?"
+- **Usuario quiere colgar**: Despídete cálidamente: "Fue un gusto ayudarle. ¡Que tenga buen día!"
+
+## Ejemplos de Flujo Natural
+
+Usuario: "Necesito ir al doctor"
+Tú: "Claro que sí. Déjeme revisar sus lugares guardados... Veo que tiene guardado 'Consultorio Dr. García'. ¿Quiere que le pida un Uber para allá?"
+
+Usuario: "¿Qué medicinas me tocan?"
+Tú: "Con gusto le digo. Un momento... Según su horario, a las 2 de la tarde le toca tomar su Metformina de 500mg con los alimentos."
+
+Usuario: "Quiero hablar con mi hija"
+Tú: "Por supuesto. Déjeme buscar ese contacto... Encontré a María García, su hija. ¿Quiere que lo comunique con ella ahora?"
+"#;
 
