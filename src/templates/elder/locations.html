@@ -20,7 +20,7 @@
             </header>
 
             {% if elder_id %}
-            <!-- Locations Grid -->
+            <!-- Locations Sections -->
             <template x-if="loading">
                 <div class="text-center text-stone-500 py-8">Cargando...</div>
             </template>
@@ -32,42 +32,114 @@
                     <button @click="openModal()" class="btn btn-primary">+ Agregar Ubicación</button>
                 </div>
             </template>
-            <div x-show="!loading && locations.length > 0" class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
-                <template x-for="loc in locations" :key="loc.id">
-                    <div class="card p-0 overflow-hidden">
-                        <!-- Map Preview -->
-                        <template x-if="loc.latitude && loc.longitude && googleMapsApiKey">
-                            <div class="h-32 bg-surface-800">
-                                <img 
-                                    :src="'https://maps.googleapis.com/maps/api/staticmap?center=' + loc.latitude + ',' + loc.longitude + '&zoom=15&size=400x128&scale=2&markers=color:orange%7C' + loc.latitude + ',' + loc.longitude + '&style=feature:all|element:geometry|color:0x242f3e&style=feature:all|element:labels.text.stroke|color:0x242f3e&style=feature:all|element:labels.text.fill|color:0x746855&style=feature:road|element:geometry|color:0x38414e&style=feature:water|element:geometry|color:0x17263c&key=' + googleMapsApiKey"
-                                    class="w-full h-full object-cover"
-                                    alt="Mapa"
-                                >
-                            </div>
-                        </template>
-                        <template x-if="!loc.latitude || !loc.longitude || !googleMapsApiKey">
-                            <div class="h-32 bg-surface-800 flex items-center justify-center">
-                                <span class="text-stone-600 text-4xl">📍</span>
-                            </div>
-                        </template>
-                        
-                        <!-- Card Content -->
-                        <div class="p-4">
-                            <div class="flex justify-between items-start mb-2">
-                                <div>
-                                    <h3 class="font-semibold text-stone-100" x-text="loc.name"></h3>
-                                    <span x-show="loc.is_home" class="badge badge-primary text-xs mt-1">Casa (Recogida)</span>
-                                </div>
-                                <button @click="deleteLocation(loc.id)" class="btn btn-ghost btn-sm text-red-400">×</button>
-                            </div>
-                            <p class="text-sm text-stone-400 mb-2" x-text="loc.address"></p>
-                            <p x-show="loc.extra_instructions" class="text-xs text-stone-500" x-text="loc.extra_instructions"></p>
-                            <template x-if="!loc.latitude || !loc.longitude">
-                                <p class="text-xs text-yellow-400 mt-2">⚠ Sin coordenadas - edita para agregar</p>
-                            </template>
+            
+            <div x-show="!loading && locations.length > 0" class="space-y-8">
+                <!-- Destinations Section -->
+                <section>
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="text-lg font-semibold text-stone-100">🎯 Destinos</h2>
+                            <p class="text-sm text-stone-500">Lugares a donde tu adulto mayor puede ir</p>
                         </div>
+                        <button @click="openModal('destination')" class="btn btn-outline btn-sm">+ Destino</button>
                     </div>
-                </template>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <template x-for="loc in destinations" :key="loc.id">
+                            <div class="card p-0 overflow-hidden border-l-4 border-l-primary-500">
+                                <!-- Map Preview -->
+                                <template x-if="loc.latitude && loc.longitude && googleMapsApiKey">
+                                    <div class="h-28 bg-surface-800">
+                                        <img 
+                                            :src="'https://maps.googleapis.com/maps/api/staticmap?center=' + loc.latitude + ',' + loc.longitude + '&zoom=15&size=400x112&scale=2&markers=color:orange%7C' + loc.latitude + ',' + loc.longitude + '&style=feature:all|element:geometry|color:0x242f3e&style=feature:all|element:labels.text.stroke|color:0x242f3e&style=feature:all|element:labels.text.fill|color:0x746855&style=feature:road|element:geometry|color:0x38414e&style=feature:water|element:geometry|color:0x17263c&key=' + googleMapsApiKey"
+                                            class="w-full h-full object-cover"
+                                            alt="Mapa"
+                                        >
+                                    </div>
+                                </template>
+                                <template x-if="!loc.latitude || !loc.longitude || !googleMapsApiKey">
+                                    <div class="h-28 bg-surface-800 flex items-center justify-center">
+                                        <span class="text-stone-600 text-3xl">🎯</span>
+                                    </div>
+                                </template>
+                                
+                                <div class="p-3">
+                                    <div class="flex justify-between items-start mb-1">
+                                        <div>
+                                            <h3 class="font-semibold text-stone-100 text-sm" x-text="loc.name"></h3>
+                                            <span x-show="loc.is_home" class="badge badge-primary text-xs">Casa</span>
+                                        </div>
+                                        <button @click="deleteLocation(loc.id)" class="btn btn-ghost btn-sm text-red-400 text-xs">×</button>
+                                    </div>
+                                    <p class="text-xs text-stone-400 truncate" x-text="loc.address"></p>
+                                    <template x-if="loc.tags && loc.tags.length > 0">
+                                        <div class="flex flex-wrap gap-1 mt-2">
+                                            <template x-for="tag in loc.tags" :key="tag">
+                                                <span class="tag text-xs" x-text="tag"></span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="destinations.length === 0">
+                            <div class="col-span-full text-center text-stone-500 py-4 bg-surface-800/30 rounded-lg">
+                                Sin destinos. Agrega lugares como el doctor, supermercado, etc.
+                            </div>
+                        </template>
+                    </div>
+                </section>
+                
+                <!-- Common Spots Section -->
+                <section>
+                    <div class="flex items-center justify-between mb-4">
+                        <div>
+                            <h2 class="text-lg font-semibold text-stone-100">📍 Lugares Frecuentes</h2>
+                            <p class="text-sm text-stone-500">Lugares donde podría estar tu adulto mayor al llamar</p>
+                        </div>
+                        <button @click="openModal('common_spot')" class="btn btn-outline btn-sm">+ Lugar</button>
+                    </div>
+                    <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+                        <template x-for="loc in commonSpots" :key="loc.id">
+                            <div class="card p-0 overflow-hidden border-l-4 border-l-sky-500">
+                                <!-- Map Preview -->
+                                <template x-if="loc.latitude && loc.longitude && googleMapsApiKey">
+                                    <div class="h-28 bg-surface-800">
+                                        <img 
+                                            :src="'https://maps.googleapis.com/maps/api/staticmap?center=' + loc.latitude + ',' + loc.longitude + '&zoom=15&size=400x112&scale=2&markers=color:blue%7C' + loc.latitude + ',' + loc.longitude + '&style=feature:all|element:geometry|color:0x242f3e&style=feature:all|element:labels.text.stroke|color:0x242f3e&style=feature:all|element:labels.text.fill|color:0x746855&style=feature:road|element:geometry|color:0x38414e&style=feature:water|element:geometry|color:0x17263c&key=' + googleMapsApiKey"
+                                            class="w-full h-full object-cover"
+                                            alt="Mapa"
+                                        >
+                                    </div>
+                                </template>
+                                <template x-if="!loc.latitude || !loc.longitude || !googleMapsApiKey">
+                                    <div class="h-28 bg-surface-800 flex items-center justify-center">
+                                        <span class="text-stone-600 text-3xl">📍</span>
+                                    </div>
+                                </template>
+                                
+                                <div class="p-3">
+                                    <div class="flex justify-between items-start mb-1">
+                                        <h3 class="font-semibold text-stone-100 text-sm" x-text="loc.name"></h3>
+                                        <button @click="deleteLocation(loc.id)" class="btn btn-ghost btn-sm text-red-400 text-xs">×</button>
+                                    </div>
+                                    <p class="text-xs text-stone-400 truncate" x-text="loc.address"></p>
+                                    <template x-if="loc.tags && loc.tags.length > 0">
+                                        <div class="flex flex-wrap gap-1 mt-2">
+                                            <template x-for="tag in loc.tags" :key="tag">
+                                                <span class="tag text-xs" x-text="tag"></span>
+                                            </template>
+                                        </div>
+                                    </template>
+                                </div>
+                            </div>
+                        </template>
+                        <template x-if="commonSpots.length === 0">
+                            <div class="col-span-full text-center text-stone-500 py-4 bg-surface-800/30 rounded-lg">
+                                Sin lugares frecuentes. Agrega lugares como casa de amigos, iglesia, parque, etc.
+                            </div>
+                        </template>
+                    </div>
+                </section>
             </div>
 
             <!-- Add/Edit Modal -->
@@ -75,16 +147,34 @@
                 <div class="modal-backdrop" @click="showModal = false"></div>
                     
                 <div class="modal modal-xl">
-                    <h2 class="modal-title">Agregar Ubicación</h2>
+                    <h2 class="modal-title" x-text="form.location_type === 'common_spot' ? 'Agregar Lugar Frecuente' : 'Agregar Destino'"></h2>
                     
                     <form @submit.prevent="createLocation" class="modal-body">
                         <div class="grid grid-cols-1 lg:grid-cols-2 gap-4">
                             <!-- Left column: Form fields -->
                             <div class="space-y-4">
+                                <!-- Location Type Toggle -->
+                                <div class="form-group">
+                                    <label class="form-label">Tipo de Ubicación</label>
+                                    <div class="flex gap-2">
+                                        <button type="button" @click="form.location_type = 'destination'"
+                                            :class="form.location_type === 'destination' ? 'bg-primary-500 text-white' : 'bg-surface-800 text-stone-400'"
+                                            class="flex-1 px-3 py-2 rounded text-sm font-medium transition-colors">
+                                            🎯 Destino
+                                        </button>
+                                        <button type="button" @click="form.location_type = 'common_spot'"
+                                            :class="form.location_type === 'common_spot' ? 'bg-sky-500 text-white' : 'bg-surface-800 text-stone-400'"
+                                            class="flex-1 px-3 py-2 rounded text-sm font-medium transition-colors">
+                                            📍 Lugar Frecuente
+                                        </button>
+                                    </div>
+                                    <p class="form-hint" x-text="form.location_type === 'common_spot' ? 'Lugares donde podría estar al llamar (casa de amigos, iglesia, etc.)' : 'Lugares a donde quiere ir (doctor, supermercado, etc.)'"></p>
+                                </div>
+                                
                                 <div class="form-group">
                                     <label class="form-label">Nombre / Etiqueta</label>
-                                    <input type="text" x-model="form.name" required placeholder="ej. Consultorio Dr. García, Supermercado" class="form-input">
-                                    <p class="form-hint">Nombre que usará el adulto mayor para pedir el viaje</p>
+                                    <input type="text" x-model="form.name" required placeholder="ej. Consultorio Dr. García, Casa de María" class="form-input">
+                                    <p class="form-hint">Nombre que usará el adulto mayor</p>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">Dirección</label>
@@ -95,29 +185,30 @@
                                            required 
                                            placeholder="Escribe la dirección completa" 
                                            class="form-input">
-                                    <p class="form-hint">Escribe la dirección y selecciónala del mapa</p>
+                                </div>
+                                <div class="form-group">
+                                    <label class="form-label">Etiquetas (opcional)</label>
+                                    <input type="text" x-model="tagsInput" @keydown.enter.prevent="addTag()" @keydown.comma.prevent="addTag()"
+                                        placeholder="Escribe y presiona Enter" class="form-input">
+                                    <div x-show="form.tags.length > 0" class="flex flex-wrap gap-1 mt-2">
+                                        <template x-for="(tag, idx) in form.tags" :key="idx">
+                                            <span class="tag">
+                                                <span x-text="tag"></span>
+                                                <button type="button" @click="form.tags.splice(idx, 1)" class="ml-1 text-stone-400 hover:text-white">×</button>
+                                            </span>
+                                        </template>
+                                    </div>
+                                    <p class="form-hint">Palabras clave que ayudan al asistente (ej: doctor, médico, consulta)</p>
                                 </div>
                                 <div class="form-group">
                                     <label class="form-label">Instrucciones adicionales (opcional)</label>
-                                    <textarea x-model="form.extra_instructions" rows="2" placeholder="ej. Entrada por la puerta lateral, piso 3" class="form-textarea"></textarea>
+                                    <textarea x-model="form.extra_instructions" rows="2" placeholder="ej. Entrada por la puerta lateral" class="form-textarea"></textarea>
                                 </div>
-                                <div class="form-group">
+                                <div class="form-group" x-show="form.location_type === 'destination'">
                                     <label class="flex items-center gap-3">
                                         <input type="checkbox" x-model="form.is_home" class="form-checkbox">
-                                        <span class="text-sm text-stone-300">Esta es la dirección de casa (punto de recogida)</span>
+                                        <span class="text-sm text-stone-300">Esta es la dirección de casa</span>
                                     </label>
-                                </div>
-                                
-                                <!-- Coordinates display -->
-                                <div class="p-3 bg-surface-800 rounded border border-surface-700">
-                                    <p class="text-xs text-stone-500 mb-1">Coordenadas (se llenan automáticamente)</p>
-                                    <div class="flex gap-4 text-sm">
-                                        <span class="text-stone-400">Lat: <span x-text="form.latitude || '—'" class="text-stone-200 font-mono"></span></span>
-                                        <span class="text-stone-400">Lng: <span x-text="form.longitude || '—'" class="text-stone-200 font-mono"></span></span>
-                                    </div>
-                                    <template x-if="!form.latitude || !form.longitude">
-                                        <p class="text-xs text-yellow-400 mt-2">⚠ Selecciona un punto en el mapa para obtener coordenadas exactas</p>
-                                    </template>
                                 </div>
                             </div>
                             
@@ -125,7 +216,12 @@
                             <div class="space-y-2">
                                 <label class="form-label">Ubicación en el Mapa</label>
                                 <div id="location-map" class="w-full h-64 lg:h-80 rounded border border-surface-700 bg-surface-800"></div>
-                                <p class="form-hint">Haz clic en el mapa para ajustar la ubicación exacta</p>
+                                <p class="form-hint">Haz clic en el mapa para ajustar la ubicación</p>
+                                <!-- Coordinates display -->
+                                <div class="p-2 bg-surface-800 rounded text-xs">
+                                    <span class="text-stone-400">Lat: <span x-text="form.latitude?.toFixed(6) || '—'" class="text-stone-200 font-mono"></span></span>
+                                    <span class="text-stone-400 ml-3">Lng: <span x-text="form.longitude?.toFixed(6) || '—'" class="text-stone-200 font-mono"></span></span>
+                                </div>
                             </div>
                         </div>
                             
@@ -175,11 +271,23 @@ function locationsPage(elderId, googleMapsApiKey) {
             extra_instructions: '', 
             is_home: false,
             latitude: null,
-            longitude: null
+            longitude: null,
+            location_type: 'destination',
+            tags: []
         },
+        tagsInput: '',
         map: null,
         marker: null,
         geocoder: null,
+        
+        // Computed: filter locations by type
+        get destinations() {
+            return this.locations.filter(l => l.location_type === 'destination' || !l.location_type);
+        },
+        
+        get commonSpots() {
+            return this.locations.filter(l => l.location_type === 'common_spot');
+        },
         
         async init() {
             if (!this.elderId) return;
@@ -200,15 +308,26 @@ function locationsPage(elderId, googleMapsApiKey) {
             this.loading = false;
         },
         
-        async openModal() {
+        addTag() {
+            const tag = this.tagsInput.trim().replace(',', '');
+            if (tag && !this.form.tags.includes(tag)) {
+                this.form.tags.push(tag);
+            }
+            this.tagsInput = '';
+        },
+        
+        async openModal(locationType = 'destination') {
             this.showModal = true;
+            this.tagsInput = '';
             this.form = { 
                 name: '', 
                 address: '', 
                 extra_instructions: '', 
                 is_home: false,
                 latitude: null,
-                longitude: null
+                longitude: null,
+                location_type: locationType,
+                tags: []
             };
             
             // Wait for DOM update and maps API
@@ -360,8 +479,11 @@ function locationsPage(elderId, googleMapsApiKey) {
                         extra_instructions: '', 
                         is_home: false,
                         latitude: null,
-                        longitude: null
+                        longitude: null,
+                        location_type: 'destination',
+                        tags: []
                     };
+                    this.tagsInput = '';
                     await this.loadLocations();
                 } else {
                     const error = await res.json();

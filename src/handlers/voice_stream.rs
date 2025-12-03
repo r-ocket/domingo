@@ -14,7 +14,8 @@ use crate::clients::{
     TwilioStreamMessage, TwilioOutboundMedia,
     RealtimeServerEvent, build_assistant_tools, SYSTEM_PROMPT,
 };
-use crate::domain::{CallStatus, Elder};
+use crate::domain::{CallStatus, Elder, LocationType};
+use crate::repositories::postgres::CaregiverRepository;
 use crate::services::{
     CallService, ContactService, ElderService, LocationService,
     MedicationService, RideService, Speaker,
@@ -430,6 +431,22 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
         elder.name
     ));
     
+    // Fetch caregiver relationship notes if available
+    if let Ok(Some(relationship)) = CaregiverRepository::get_relationship(
+        &state.db, elder.caregiver_id, elder.id
+    ).await {
+        let mut rel_info = format!(
+            "## Contexto del Cuidador\nEl cuidador principal es su **{}**.",
+            relationship.relationship
+        );
+        if let Some(notes) = relationship.notes {
+            if !notes.is_empty() {
+                rel_info.push_str(&format!("\nNotas importantes: {}", notes));
+            }
+        }
+        context_parts.push(rel_info);
+    }
+    
     // Fetch and add contacts
     if let Ok(contacts) = ContactService::get_all_contacts(&state.db, elder.id).await {
         if !contacts.is_empty() {
@@ -445,18 +462,50 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
         }
     }
     
-    // Fetch and add locations
+    // Fetch and add locations (separated by type)
     if let Ok(locations) = LocationService::get_all_locations(&state.db, elder.id).await {
         if !locations.is_empty() {
-            let mut location_list = String::from("## Ubicaciones Guardadas\n");
-            for l in &locations {
-                let home = if l.is_home { " (CASA - punto de recogida)" } else { "" };
-                location_list.push_str(&format!(
-                    "- **{}**{}: {}\n",
-                    l.name, home, l.address
-                ));
+            // Destinations (places to go)
+            let destinations: Vec<_> = locations.iter()
+                .filter(|l| l.location_type == LocationType::Destination)
+                .collect();
+            if !destinations.is_empty() {
+                let mut dest_list = String::from("## Destinos (lugares a donde puede ir)\n");
+                for l in destinations {
+                    let home = if l.is_home { " (CASA)" } else { "" };
+                    let tags = if !l.tags.is_empty() { 
+                        format!(" [{}]", l.tags.join(", "))
+                    } else { 
+                        String::new() 
+                    };
+                    dest_list.push_str(&format!(
+                        "- **{}**{}: {}{}\n",
+                        l.name, home, l.address, tags
+                    ));
+                }
+                context_parts.push(dest_list);
             }
-            context_parts.push(location_list);
+            
+            // Common spots (places where they might be)
+            let common_spots: Vec<_> = locations.iter()
+                .filter(|l| l.location_type == LocationType::CommonSpot)
+                .collect();
+            if !common_spots.is_empty() {
+                let mut spots_list = String::from("## Lugares Frecuentes (donde podría estar ahora)\n");
+                spots_list.push_str("Cuando pida un Uber, pregunta si está en uno de estos lugares:\n");
+                for l in common_spots {
+                    let tags = if !l.tags.is_empty() { 
+                        format!(" [{}]", l.tags.join(", "))
+                    } else { 
+                        String::new() 
+                    };
+                    spots_list.push_str(&format!(
+                        "- **{}**: {}{}\n",
+                        l.name, l.address, tags
+                    ));
+                }
+                context_parts.push(spots_list);
+            }
         }
     }
     
@@ -468,10 +517,11 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
                 let times: Vec<String> = m.schedules.iter()
                     .map(|s| s.time_of_day.format("%H:%M").to_string())
                     .collect();
+                let days = m.schedules.first().map(|s| s.days_description()).unwrap_or_default();
                 let instructions = m.medication.instructions.as_deref().unwrap_or("");
                 med_list.push_str(&format!(
-                    "- **{}** ({}) a las {} {}\n",
-                    m.medication.name, m.medication.dosage, times.join(", "), instructions
+                    "- **{}** ({}) - {} a las {} {}\n",
+                    m.medication.name, m.medication.dosage, days, times.join(", "), instructions
                 ));
             }
             context_parts.push(med_list);

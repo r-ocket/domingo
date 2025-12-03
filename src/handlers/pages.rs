@@ -562,6 +562,36 @@ fn get_session(state: &AppState, jar: &CookieJar) -> Option<crate::domain::Sessi
 }
 
 /// Get selected elder from cookie, with fallback to first elder
+/// Settings profile page
+pub async fn settings_profile_page(
+    State(state): State<AppState>,
+    jar: CookieJar,
+) -> impl IntoResponse {
+    let session = match get_session(&state, &jar) {
+        Some(s) => s,
+        None => return Redirect::to("/login").into_response(),
+    };
+    
+    let mut context = Context::new();
+    context.insert("title", "Mi Perfil - Domingo");
+    context.insert("current_path", "/settings/profile");
+    context.insert("is_admin", &(session.role == crate::domain::UserRole::Admin));
+    
+    // Get all elders for sidebar
+    if let Some((selected_elder, elders)) = get_selected_elder(&state, &jar, session.caregiver_id).await {
+        context.insert("elders", &elders);
+        context.insert("selected_elder", &selected_elder);
+    }
+    
+    match state.templates.render("settings/profile.html", &context) {
+        Ok(html) => Html(html).into_response(),
+        Err(e) => {
+            tracing::error!("Template error: {}", e);
+            Html("<h1>Error loading page</h1>").into_response()
+        }
+    }
+}
+
 async fn get_selected_elder(
     state: &AppState,
     jar: &CookieJar,

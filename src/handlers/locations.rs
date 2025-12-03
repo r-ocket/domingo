@@ -147,6 +147,8 @@ pub struct LocationResponse {
     pub longitude: Option<f64>,
     pub extra_instructions: Option<String>,
     pub is_home: bool,
+    pub location_type: String,
+    pub tags: Vec<String>,
     pub created_at: String,
     pub updated_at: String,
 }
@@ -162,6 +164,8 @@ impl From<crate::domain::Location> for LocationResponse {
             longitude: l.longitude,
             extra_instructions: l.extra_instructions,
             is_home: l.is_home,
+            location_type: l.location_type.to_string(),
+            tags: l.tags,
             created_at: l.created_at.to_rfc3339(),
             updated_at: l.updated_at.to_rfc3339(),
         }

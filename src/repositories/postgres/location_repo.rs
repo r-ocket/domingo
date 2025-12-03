@@ -4,7 +4,7 @@ use chrono::Utc;
 use uuid::Uuid;
 
 use crate::domain::{
-    CreateLocationRequest, DomainError, DomainResult, Location,
+    CreateLocationRequest, DomainError, DomainResult, Location, LocationType,
     Pagination, Paginated, UpdateLocationRequest,
 };
 use super::PostgresPool;
@@ -33,14 +33,16 @@ impl LocationRepository {
                 .await?;
         }
         
+        let location_type = req.location_type.to_string();
+        
         let row = client
             .query_one(
                 r#"
-                INSERT INTO locations (id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at)
-                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10)
-                RETURNING id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at
+                INSERT INTO locations (id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at)
+                VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12)
+                RETURNING id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
                 "#,
-                &[&id, &elder_id, &req.name, &req.address, &req.latitude, &req.longitude, &req.extra_instructions, &req.is_home, &now, &now],
+                &[&id, &elder_id, &req.name, &req.address, &req.latitude, &req.longitude, &req.extra_instructions, &req.is_home, &location_type, &req.tags, &now, &now],
             )
             .await?;
         
@@ -54,7 +56,7 @@ impl LocationRepository {
         let row = client
             .query_opt(
                 r#"
-                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at
+                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
                 FROM locations WHERE id = $1
                 "#,
                 &[&id],
@@ -77,7 +79,7 @@ impl LocationRepository {
         let rows = client
             .query(
                 r#"
-                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at
+                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
                 FROM locations 
                 WHERE elder_id = $1 AND LOWER(name) LIKE $2
                 ORDER BY name
@@ -96,7 +98,7 @@ impl LocationRepository {
         let row = client
             .query_opt(
                 r#"
-                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at
+                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
                 FROM locations 
                 WHERE elder_id = $1 AND is_home = true
                 "#,
@@ -126,10 +128,10 @@ impl LocationRepository {
         let rows = client
             .query(
                 r#"
-                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at
+                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
                 FROM locations
                 WHERE elder_id = $1
-                ORDER BY is_home DESC, name
+                ORDER BY is_home DESC, location_type, name
                 LIMIT $2 OFFSET $3
                 "#,
                 &[&elder_id, &pagination.limit(), &pagination.offset()],
@@ -148,12 +150,36 @@ impl LocationRepository {
         let rows = client
             .query(
                 r#"
-                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at
+                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
                 FROM locations
                 WHERE elder_id = $1
-                ORDER BY is_home DESC, name
+                ORDER BY is_home DESC, location_type, name
                 "#,
                 &[&elder_id],
+            )
+            .await?;
+        
+        Ok(rows.iter().map(row_to_location).collect())
+    }
+    
+    /// List locations by type
+    pub async fn list_by_type(
+        pool: &PostgresPool,
+        elder_id: Uuid,
+        location_type: LocationType,
+    ) -> DomainResult<Vec<Location>> {
+        let client = pool.get().await?;
+        let type_str = location_type.to_string();
+        
+        let rows = client
+            .query(
+                r#"
+                SELECT id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
+                FROM locations
+                WHERE elder_id = $1 AND location_type = $2
+                ORDER BY is_home DESC, name
+                "#,
+                &[&elder_id, &type_str],
             )
             .await?;
         
@@ -186,16 +212,18 @@ impl LocationRepository {
         let longitude = req.longitude.or(current.longitude);
         let extra_instructions = req.extra_instructions.clone().or(current.extra_instructions);
         let is_home = req.is_home.unwrap_or(current.is_home);
+        let location_type = req.location_type.unwrap_or(current.location_type).to_string();
+        let tags = req.tags.clone().unwrap_or(current.tags);
         
         let row = client
             .query_one(
                 r#"
                 UPDATE locations 
-                SET name = $2, address = $3, latitude = $4, longitude = $5, extra_instructions = $6, is_home = $7, updated_at = $8
+                SET name = $2, address = $3, latitude = $4, longitude = $5, extra_instructions = $6, is_home = $7, location_type = $8, tags = $9, updated_at = $10
                 WHERE id = $1
-                RETURNING id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, created_at, updated_at
+                RETURNING id, elder_id, name, address, latitude, longitude, extra_instructions, is_home, location_type, tags, created_at, updated_at
                 "#,
-                &[&id, &name, &address, &latitude, &longitude, &extra_instructions, &is_home, &now],
+                &[&id, &name, &address, &latitude, &longitude, &extra_instructions, &is_home, &location_type, &tags, &now],
             )
             .await?;
         
@@ -243,6 +271,10 @@ fn row_to_location(row: &tokio_postgres::Row) -> Location {
         longitude: row.get("longitude"),
         extra_instructions: row.get("extra_instructions"),
         is_home: row.get("is_home"),
+        location_type: row.get::<_, String>("location_type")
+            .parse()
+            .unwrap_or(LocationType::Destination),
+        tags: row.get("tags"),
         created_at: row.get("created_at"),
         updated_at: row.get("updated_at"),
     }

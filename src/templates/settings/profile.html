@@ -1,0 +1,231 @@
+{% extends "base.html" %}
+
+{% block content %}
+<div class="app-shell">
+    {% include "partials/sidebar.html" %}
+    
+    <main class="main-content" :class="sidebarOpen ? 'sidebar-open' : 'sidebar-collapsed'">
+        <div class="page-container" x-data="profilePage()">
+            <!-- Page Header -->
+            <header class="page-header">
+                <div>
+                    <h1 class="page-title">Mi Perfil</h1>
+                    <p class="page-subtitle">Administra tu información personal y configuración</p>
+                </div>
+            </header>
+
+            <div class="grid grid-cols-1 lg:grid-cols-2 gap-6">
+                <!-- Profile Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Información Personal</h2>
+                    </div>
+                    
+                    <template x-if="loading">
+                        <div class="text-center text-stone-500 py-8">Cargando...</div>
+                    </template>
+                    
+                    <form @submit.prevent="saveProfile" x-show="!loading" class="space-y-4">
+                        <div class="form-group">
+                            <label class="form-label">Nombre</label>
+                            <input type="text" x-model="profile.name" class="form-input" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Email</label>
+                            <input type="email" x-model="profile.email" class="form-input" required>
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Teléfono</label>
+                            <input type="tel" x-model="profile.phone" class="form-input" placeholder="+52 55 1234 5678">
+                        </div>
+                        
+                        <div class="form-group">
+                            <label class="form-label">Notas Generales</label>
+                            <p class="form-hint">Información sobre ti que puede ser útil para el asistente</p>
+                            <textarea x-model="profile.notes" rows="3" class="form-textarea" 
+                                placeholder="Ej: Trabajo de noche, prefiero que me contacten por WhatsApp..."></textarea>
+                        </div>
+                        
+                        <div class="flex justify-end gap-2">
+                            <button type="submit" class="btn btn-primary" :disabled="saving">
+                                <span x-show="!saving">Guardar Cambios</span>
+                                <span x-show="saving">Guardando...</span>
+                            </button>
+                        </div>
+                        
+                        <div x-show="saved" x-transition class="p-3 bg-emerald-500/10 border border-emerald-500/30 rounded text-emerald-400 text-sm">
+                            ✓ Perfil actualizado correctamente
+                        </div>
+                    </form>
+                </div>
+                
+                <!-- Elder Relationships Card -->
+                <div class="card">
+                    <div class="card-header">
+                        <h2 class="card-title">Mis Adultos Mayores</h2>
+                    </div>
+                    
+                    <template x-if="loadingRelationships">
+                        <div class="text-center text-stone-500 py-8">Cargando...</div>
+                    </template>
+                    
+                    <div x-show="!loadingRelationships" class="space-y-4">
+                        <template x-if="relationships.length === 0">
+                            <p class="text-stone-500 text-center py-4">
+                                No tienes adultos mayores registrados.
+                                <a href="/elder/profile?new=1" class="text-primary-400 hover:underline">Agregar uno</a>
+                            </p>
+                        </template>
+                        
+                        <template x-for="rel in relationships" :key="rel.elder_id">
+                            <div class="bg-surface-800/50 border border-surface-700/50 rounded-lg p-4">
+                                <div class="flex items-center gap-3 mb-3">
+                                    <div class="w-10 h-10 rounded-full bg-primary-500/20 flex items-center justify-center text-lg">👴</div>
+                                    <div>
+                                        <h3 class="font-semibold text-stone-100" x-text="rel.elder_name"></h3>
+                                        <p class="text-sm text-stone-500" x-text="rel.elder_phone"></p>
+                                    </div>
+                                </div>
+                                
+                                <div class="space-y-3">
+                                    <div class="form-group">
+                                        <label class="form-label text-xs">Relación</label>
+                                        <select x-model="rel.relationship" @change="updateRelationship(rel)" class="form-select text-sm">
+                                            <option value="Cuidador">Cuidador/a</option>
+                                            <option value="Hijo">Hijo/a</option>
+                                            <option value="Nieto">Nieto/a</option>
+                                            <option value="Sobrino">Sobrino/a</option>
+                                            <option value="Vecino">Vecino/a</option>
+                                            <option value="Amigo">Amigo/a</option>
+                                            <option value="Profesional">Profesional de salud</option>
+                                        </select>
+                                    </div>
+                                    
+                                    <div class="form-group">
+                                        <label class="form-label text-xs">Notas para el Asistente</label>
+                                        <textarea x-model="rel.notes" @blur="updateRelationship(rel)" rows="2" 
+                                            class="form-textarea text-sm"
+                                            placeholder="Ej: Soy su hija, vivo cerca, tengo acceso a su departamento..."></textarea>
+                                        <p class="form-hint text-xs">Esta información se incluirá en el contexto del asistente cuando hable con tu adulto mayor</p>
+                                    </div>
+                                </div>
+                            </div>
+                        </template>
+                    </div>
+                </div>
+            </div>
+        </div>
+    </main>
+</div>
+
+<script>
+function profilePage() {
+    return {
+        profile: {
+            name: '',
+            email: '',
+            phone: '',
+            notes: ''
+        },
+        relationships: [],
+        loading: true,
+        loadingRelationships: true,
+        saving: false,
+        saved: false,
+        
+        async init() {
+            await Promise.all([
+                this.loadProfile(),
+                this.loadRelationships()
+            ]);
+        },
+        
+        async loadProfile() {
+            this.loading = true;
+            try {
+                const res = await fetch('/api/caregiver/profile');
+                if (res.ok) {
+                    this.profile = await res.json();
+                }
+            } catch (e) {
+                console.error('Failed to load profile:', e);
+            }
+            this.loading = false;
+        },
+        
+        async loadRelationships() {
+            this.loadingRelationships = true;
+            try {
+                // First get the elders list
+                const eldersRes = await fetch('/api/caregiver/elders');
+                if (!eldersRes.ok) {
+                    this.loadingRelationships = false;
+                    return;
+                }
+                const elders = await eldersRes.json();
+                
+                // Then get relationships
+                const relRes = await fetch('/api/caregiver/relationships');
+                if (!relRes.ok) {
+                    this.loadingRelationships = false;
+                    return;
+                }
+                const rels = await relRes.json();
+                
+                // Merge elder info with relationship data
+                this.relationships = elders.map(elder => {
+                    const rel = rels.find(r => r.elder_id === elder.id) || {};
+                    return {
+                        elder_id: elder.id,
+                        elder_name: elder.name,
+                        elder_phone: elder.phone_number,
+                        relationship: rel.relationship || 'Cuidador',
+                        notes: rel.notes || ''
+                    };
+                });
+            } catch (e) {
+                console.error('Failed to load relationships:', e);
+            }
+            this.loadingRelationships = false;
+        },
+        
+        async saveProfile() {
+            this.saving = true;
+            this.saved = false;
+            try {
+                const res = await fetch('/api/caregiver/profile', {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.profile)
+                });
+                if (res.ok) {
+                    this.saved = true;
+                    setTimeout(() => this.saved = false, 3000);
+                }
+            } catch (e) {
+                console.error('Failed to save profile:', e);
+            }
+            this.saving = false;
+        },
+        
+        async updateRelationship(rel) {
+            try {
+                await fetch(`/api/caregiver/relationships/${rel.elder_id}`, {
+                    method: 'PUT',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({
+                        relationship: rel.relationship,
+                        notes: rel.notes
+                    })
+                });
+            } catch (e) {
+                console.error('Failed to update relationship:', e);
+            }
+        }
+    }
+}
+</script>
+{% endblock %}
+

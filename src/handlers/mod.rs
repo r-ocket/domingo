@@ -14,6 +14,7 @@ mod admin;
 mod pages;
 mod billing;
 mod debug;
+mod profile;
 
 use axum::{
     routing::{get, post, put, delete},
@@ -35,6 +36,13 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/elder", post(elder::create_elder))
         .route("/api/elder/:elder_id", get(elder::get_elder))
         .route("/api/elder/:elder_id", put(elder::update_elder))
+        
+        // Caregiver profile
+        .route("/api/caregiver/profile", get(profile::get_profile))
+        .route("/api/caregiver/profile", put(profile::update_profile))
+        .route("/api/caregiver/relationships", get(profile::list_relationships))
+        .route("/api/caregiver/relationships/:elder_id", get(profile::get_relationship))
+        .route("/api/caregiver/relationships/:elder_id", put(profile::update_relationship))
         
         // Caregiver elders (multi-elder support)
         .route("/api/caregiver/elders", get(elder::list_caregiver_elders))
@@ -130,6 +138,7 @@ pub fn page_routes() -> Router<AppState> {
         .route("/elder/logs/rides", get(pages::ride_logs_page))
         .route("/elder/logs/reminders", get(pages::reminder_logs_page))
         .route("/billing", get(pages::billing_page))
+        .route("/settings/profile", get(pages::settings_profile_page))
         
         // Admin pages
         .route("/admin", get(pages::admin_dashboard))

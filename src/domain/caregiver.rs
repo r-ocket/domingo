@@ -42,6 +42,8 @@ pub struct Caregiver {
     #[serde(skip_serializing)]
     pub password_hash: String,
     pub role: UserRole,
+    pub phone: Option<String>,
+    pub notes: Option<String>,
     pub stripe_customer_id: Option<String>,
     pub created_at: DateTime<Utc>,
     pub updated_at: DateTime<Utc>,
@@ -57,10 +59,30 @@ pub struct CreateCaregiverRequest {
 
 /// Request to update caregiver profile
 #[derive(Debug, Clone, Deserialize)]
-#[allow(dead_code)]
 pub struct UpdateCaregiverRequest {
     pub name: Option<String>,
     pub email: Option<String>,
+    pub phone: Option<String>,
+    pub notes: Option<String>,
+}
+
+/// Relationship between a caregiver and an elder with context notes
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct CaregiverElderRelationship {
+    pub id: Uuid,
+    pub caregiver_id: Uuid,
+    pub elder_id: Uuid,
+    pub relationship: String,
+    pub notes: Option<String>,
+    pub created_at: DateTime<Utc>,
+    pub updated_at: DateTime<Utc>,
+}
+
+/// Request to create/update caregiver-elder relationship
+#[derive(Debug, Clone, Deserialize)]
+pub struct UpdateRelationshipRequest {
+    pub relationship: Option<String>,
+    pub notes: Option<String>,
 }
 
 /// Login credentials
