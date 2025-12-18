@@ -335,8 +335,10 @@ impl ClientMessage {
             // Enable transcriptions (we use these for admin monitoring).
             inputAudioTranscription: Some(overrides.input_audio_transcription.unwrap_or_else(|| json!({}))),
             outputAudioTranscription: Some(overrides.output_audio_transcription.unwrap_or_else(|| json!({}))),
-            // Keep sessions alive across websocket resets (only include if we actually have a handle).
-            sessionResumption: resume_handle.map(|h| SessionResumptionConfig { handle: Some(h) }),
+            // Always request session resumption so we can reconnect after transient server errors (1011/goAway).
+            // If we don't have a handle yet, this serializes as `{}` and the server should send a handle via
+            // `sessionResumptionUpdate.newHandle` once the session is resumable.
+            sessionResumption: Some(SessionResumptionConfig { handle: resume_handle }),
             // Avoid hitting the 128k context cap in long calls.
             contextWindowCompression: Some(json!({ "slidingWindow": {} })),
         };

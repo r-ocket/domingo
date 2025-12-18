@@ -314,6 +314,7 @@ async fn handle_gemini_stream(
 
         let client = state_clone.gemini.clone();
         let mut resume_handle: Option<String> = None;
+        let mut reconnect_attempts_without_handle: u32 = 0;
         let mut greeted = false;
         let mut pending_greeting = false;
         let mut current_user_text = String::new();
@@ -465,6 +466,7 @@ async fn handle_gemini_stream(
                             if update.resumable.unwrap_or(false) {
                                 if let Some(h) = update.new_handle {
                                     resume_handle = Some(h);
+                                    reconnect_attempts_without_handle = 0;
                                 }
                             }
                         }
@@ -559,6 +561,11 @@ async fn handle_gemini_stream(
                                 // commit any pending partial user text before we act on tools
                                 let _ = maybe_commit_final(&state_clone.call_state, &call_sid_for_gemini, Speaker::User, &mut current_user_text);
 
+                                tracing::info!(
+                                    count = tool_call.function_calls.len(),
+                                    "Gemini Live: tool_call received"
+                                );
+
                                 let mut function_responses: Vec<FunctionResponse> = Vec::with_capacity(tool_call.function_calls.len());
 
                                 for fc in tool_call.function_calls {
@@ -570,6 +577,14 @@ async fn handle_gemini_stream(
                                     let call_id = fc.id.clone();
                                     let tool_name = fc.name.clone();
                                     let args_str = serde_json::to_string(&fc.args).unwrap_or_default();
+
+                                    tracing::info!(
+                                        id = %call_id,
+                                        name = %tool_name,
+                                        args = %args_str,
+                                        "Gemini Live: executing tool"
+                                    );
+
                                     state_clone.call_state.add_tool_call(
                                         &call_sid_for_gemini,
                                         call_id.clone(),
@@ -631,6 +646,10 @@ async fn handle_gemini_stream(
                                     });
                                 }
 
+                                tracing::info!(
+                                    count = function_responses.len(),
+                                    "Gemini Live: sending tool responses"
+                                );
                                 let _ = session.send_tool_responses(function_responses).await;
                             }
                         }
@@ -653,11 +672,21 @@ async fn handle_gemini_stream(
 
             // If we don't have a resumable handle, don't spin forever.
             if resume_handle.is_none() {
-                tracing::warn!("Gemini Live session ended and no resumable handle available; stopping");
-                break;
+                reconnect_attempts_without_handle = reconnect_attempts_without_handle.saturating_add(1);
+                if reconnect_attempts_without_handle > 3 {
+                    tracing::warn!("Gemini Live session ended and no resumable handle available; stopping");
+                    break;
+                }
+                tracing::warn!(
+                    attempt = reconnect_attempts_without_handle,
+                    "Gemini Live session ended before resumption handle; retrying connect"
+                );
+                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+                continue;
             }
+
             // Otherwise loop to reconnect.
-            tracing::info!("Reconnecting Gemini Live session...");
+            tracing::info!("Reconnecting Gemini Live session (session resumption)...");
         }
 
         // End session in DB with transcript if any
