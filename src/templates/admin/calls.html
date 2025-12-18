@@ -41,9 +41,13 @@
                             <div class="form-group">
                                 <label class="form-label">Motor de Voz</label>
                                 <select x-model="callForm.voice_provider" class="form-select">
+                                    <option value="gemini_live">Gemini Live (Gemini API)</option>
                                     <option value="openai_realtime">GPT-Realtime (OpenAI)</option>
                                     <option value="elevenlabs">ElevenLabs (Claude 4.5)</option>
                                 </select>
+                                <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'gemini_live'">
+                                    Gemini Live API (audio nativo) + tools
+                                </p>
                                 <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'elevenlabs'">
                                     Usa Flash 2.5 con voz Juan Campillo y Claude Sonnet 4.5
                                 </p>
@@ -252,7 +256,7 @@ function callCenter() {
         elders: [],
         selectedCallSid: null,
         activeTab: 'transcript',
-        callForm: { elder_id: '', voice_provider: 'openai_realtime' },
+        callForm: { elder_id: '', voice_provider: 'gemini_live' },
         calling: false,
         callError: null,
         eventSource: null,
@@ -329,7 +333,7 @@ function callCenter() {
                         elder_id: event.elder_id,
                         elder_name: event.elder_name,
                         elder_phone: event.elder_phone,
-                        voice_provider: event.voice_provider || 'openai_realtime',
+                        voice_provider: event.voice_provider || 'gemini_live',
                         status: 'connecting',
                         started_at: new Date().toISOString(),
                         transcript: [],
@@ -445,7 +449,7 @@ function callCenter() {
                     this.callError = data.error || 'Error al iniciar llamada';
                 } else {
                     this.callForm.elder_id = '';
-                    this.callForm.voice_provider = 'openai_realtime';
+                    this.callForm.voice_provider = 'gemini_live';
                     // The SSE will handle adding the call to the list
                 }
             } catch (e) {
@@ -492,10 +496,11 @@ function callCenter() {
 
         voiceProviderLabel(provider) {
             const labels = {
+                'gemini_live': 'Gemini Live',
                 'openai_realtime': 'GPT-Realtime',
                 'elevenlabs': 'ElevenLabs'
             };
-            return labels[provider] || provider || 'GPT-Realtime';
+            return labels[provider] || provider || 'Gemini Live';
         }
     }
 }

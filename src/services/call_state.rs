@@ -57,6 +57,7 @@ pub struct CallState {
     pub elder_id: Uuid,
     pub elder_name: String,
     pub elder_phone: String,
+    pub voice_provider: String,
     pub status: LiveCallStatus,
     pub started_at: DateTime<Utc>,
     pub ended_at: Option<DateTime<Utc>>,
@@ -65,12 +66,19 @@ pub struct CallState {
 }
 
 impl CallState {
-    pub fn new(call_sid: String, elder_id: Uuid, elder_name: String, elder_phone: String) -> Self {
+    pub fn new(
+        call_sid: String,
+        elder_id: Uuid,
+        elder_name: String,
+        elder_phone: String,
+        voice_provider: String,
+    ) -> Self {
         Self {
             call_sid,
             elder_id,
             elder_name,
             elder_phone,
+            voice_provider,
             status: LiveCallStatus::Connecting,
             started_at: Utc::now(),
             ended_at: None,
@@ -90,6 +98,7 @@ pub enum CallEvent {
         elder_id: Uuid,
         elder_name: String,
         elder_phone: String,
+        voice_provider: String,
     },
     /// Call status changed
     StatusChanged {
@@ -188,12 +197,14 @@ impl CallStateStore {
         elder_id: Uuid,
         elder_name: String,
         elder_phone: String,
+        voice_provider: String,
     ) {
         let state = CallState::new(
             call_sid.clone(),
             elder_id,
             elder_name.clone(),
             elder_phone.clone(),
+            voice_provider.clone(),
         );
         
         // Create per-call broadcast channel
@@ -209,6 +220,7 @@ impl CallStateStore {
             elder_id,
             elder_name,
             elder_phone,
+            voice_provider,
         };
         self.broadcast_global(event.clone());
         

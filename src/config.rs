@@ -21,6 +21,9 @@ pub struct Config {
     // OpenAI
     pub openai_api_key: String,
     
+    // Gemini API (Gemini Live)
+    pub gemini_api_key: String,
+
     // ElevenLabs
     pub elevenlabs_api_key: String,
     /// ElevenLabs Conversational AI Agent ID (create in ElevenLabs dashboard)
@@ -71,6 +74,11 @@ impl Config {
             
             // OpenAI
             openai_api_key: env::var("OPENAI_API_KEY").unwrap_or_default(),
+
+            // Gemini API (prefer GEMINI_API_KEY, fallback GOOGLE_API_KEY)
+            gemini_api_key: env::var("GEMINI_API_KEY")
+                .or_else(|_| env::var("GOOGLE_API_KEY"))
+                .unwrap_or_default(),
             
             // ElevenLabs
             elevenlabs_api_key: env::var("ELEVENLABS_API_KEY").unwrap_or_default(),

@@ -32,6 +32,7 @@ pub struct AppState {
     pub db: PostgresPool,
     pub twilio: Arc<clients::TwilioClient>,
     pub openai: Arc<clients::OpenAIClient>,
+    pub gemini: Arc<clients::gemini_live::GeminiLiveClient>,
     pub elevenlabs: Arc<clients::ElevenLabsClient>,
     pub uber: Arc<clients::UberClient>,
     pub stripe: Arc<clients::StripeClient>,
@@ -55,14 +56,10 @@ impl AppState {
         ));
         
         let openai = Arc::new(clients::OpenAIClient::new(&config.openai_api_key));
+
+        let gemini = Arc::new(clients::gemini_live::GeminiLiveClient::new(&config.gemini_api_key));
         
-        let elevenlabs = Arc::new(
-            if let Some(agent_id) = &config.elevenlabs_agent_id {
-                clients::ElevenLabsClient::with_agent(&config.elevenlabs_api_key, agent_id)
-            } else {
-                clients::ElevenLabsClient::new(&config.elevenlabs_api_key)
-            }
-        );
+        let elevenlabs = Arc::new(clients::ElevenLabsClient::new(&config.elevenlabs_api_key));
         
         let uber = Arc::new(clients::UberClient::new(
             &config.uber_client_id,
@@ -88,6 +85,7 @@ impl AppState {
             db,
             twilio,
             openai,
+            gemini,
             elevenlabs,
             uber,
             stripe,

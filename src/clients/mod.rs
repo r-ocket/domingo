@@ -3,6 +3,8 @@
 mod twilio;
 mod openai_realtime;
 mod elevenlabs;
+pub mod gemini_live;
+pub mod audio;
 mod uber;
 mod stripe;
 

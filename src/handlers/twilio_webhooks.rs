@@ -24,13 +24,13 @@ pub async fn incoming_call(
     // Look up elder by phone number
     match ElderService::get_elder_by_phone(&state.db, &payload.from).await {
         Ok(elder) => {
-            // Create call session (incoming calls default to OpenAI Realtime)
+            // Create call session (incoming calls default to Gemini Live)
             if let Err(e) = CallService::start_session(
                 &state.db,
                 elder.id,
                 &payload.call_sid,
                 &payload.from,
-                VoiceProvider::OpenaiRealtime,
+                VoiceProvider::GeminiLive,
             ).await {
                 tracing::error!("Failed to create call session: {}", e);
             }
@@ -199,11 +199,11 @@ pub async fn outbound_voice(
 ) -> impl IntoResponse {
     tracing::info!("Processing outbound voice call");
     
-    // Parse voice provider (default to OpenAI Realtime)
+    // Parse voice provider (default to Gemini Live)
     let voice_provider = params.voice_provider
         .as_deref()
         .and_then(|s| s.parse().ok())
-        .unwrap_or(VoiceProvider::OpenaiRealtime);
+        .unwrap_or(VoiceProvider::GeminiLive);
     
     // Parse elder ID
     let elder_id = match uuid::Uuid::parse_str(&params.elder_id) {

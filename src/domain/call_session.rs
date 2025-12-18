@@ -11,6 +11,7 @@ pub enum VoiceProvider {
     #[default]
     OpenaiRealtime,
     Elevenlabs,
+    GeminiLive,
 }
 
 impl std::fmt::Display for VoiceProvider {
@@ -18,6 +19,7 @@ impl std::fmt::Display for VoiceProvider {
         match self {
             VoiceProvider::OpenaiRealtime => write!(f, "openai_realtime"),
             VoiceProvider::Elevenlabs => write!(f, "elevenlabs"),
+            VoiceProvider::GeminiLive => write!(f, "gemini_live"),
         }
     }
 }
@@ -29,6 +31,7 @@ impl std::str::FromStr for VoiceProvider {
         match s.to_lowercase().as_str() {
             "openai_realtime" | "openai" | "gpt-realtime" => Ok(VoiceProvider::OpenaiRealtime),
             "elevenlabs" | "eleven" | "11labs" => Ok(VoiceProvider::Elevenlabs),
+            "gemini_live" | "gemini" | "gemini-live" => Ok(VoiceProvider::GeminiLive),
             _ => Err(format!("Invalid voice provider: {}", s)),
         }
     }

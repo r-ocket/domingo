@@ -177,7 +177,7 @@ pub async fn create_elder(
 #[derive(Debug, Deserialize)]
 pub struct InitiateCallRequest {
     pub elder_id: Uuid,
-    /// Voice provider to use: "openai_realtime" or "elevenlabs" (defaults to openai_realtime)
+    /// Voice provider to use: "gemini_live", "openai_realtime" or "elevenlabs" (defaults to gemini_live)
     #[serde(default)]
     pub voice_provider: Option<String>,
 }
@@ -200,10 +200,10 @@ pub async fn initiate_call(
 ) -> Result<impl IntoResponse, DebugError> {
     tracing::info!("Initiating outbound call to elder");
     
-    // Parse voice provider (default to OpenAI Realtime)
+    // Parse voice provider (default to Gemini Live)
     let voice_provider = req.voice_provider
         .as_deref()
-        .unwrap_or("openai_realtime");
+        .unwrap_or("gemini_live");
     
     // Look up elder
     let elder = ElderRepository::find_by_id(&state.db, req.elder_id).await
