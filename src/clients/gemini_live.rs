@@ -24,6 +24,18 @@ use crate::mcp;
 const DEFAULT_LIVE_WSS_ENDPOINT: &str =
     "wss://generativelanguage.googleapis.com/ws/google.ai.generativelanguage.v1beta.GenerativeService.BidiGenerateContent";
 
+#[derive(Debug, Clone, Default)]
+pub struct GeminiLiveSetupOverrides {
+    /// Merged into the default `generationConfig`
+    pub generation_config: Option<serde_json::Value>,
+    /// Merged into the default `realtimeInputConfig`
+    pub realtime_input_config: Option<serde_json::Value>,
+    /// Overrides `inputAudioTranscription` if provided
+    pub input_audio_transcription: Option<serde_json::Value>,
+    /// Overrides `outputAudioTranscription` if provided
+    pub output_audio_transcription: Option<serde_json::Value>,
+}
+
 /// Gemini Live API client (Gemini API, not Vertex)
 pub struct GeminiLiveClient {
     api_key: String,
@@ -44,6 +56,7 @@ impl GeminiLiveClient {
         system_instruction: String,
         tools: Vec<mcp::ToolDefinition>,
         resume_handle: Option<String>,
+        overrides: GeminiLiveSetupOverrides,
     ) -> Result<GeminiLiveSession, GeminiLiveError> {
         tracing::info!("Gemini Live: connecting websocket");
         // Use `?key=` because it's the most common pattern for API-key auth.
@@ -153,7 +166,7 @@ impl GeminiLiveClient {
         };
 
         session
-            .send_setup(system_instruction, tools, resume_handle)
+            .send_setup(system_instruction, tools, resume_handle, overrides)
             .await?;
 
         Ok(session)
@@ -198,8 +211,9 @@ impl GeminiLiveSession {
         system_instruction: String,
         tools: Vec<mcp::ToolDefinition>,
         resume_handle: Option<String>,
+        overrides: GeminiLiveSetupOverrides,
     ) -> Result<(), GeminiLiveError> {
-        let msg = ClientMessage::setup(system_instruction, tools, resume_handle);
+        let msg = ClientMessage::setup(system_instruction, tools, resume_handle, overrides);
         tracing::info!("Gemini Live: sending setup");
         self.send(msg).await
     }
@@ -240,16 +254,39 @@ impl ClientMessage {
         system_instruction_text: String,
         tools: Vec<mcp::ToolDefinition>,
         resume_handle: Option<String>,
+        overrides: GeminiLiveSetupOverrides,
     ) -> Self {
         let tool_defs = build_function_declarations(tools);
 
         // Note: these knobs are intentionally conservative. We can tune after field tests.
         // Live API requires responseModalities to be either TEXT or AUDIO (not both).
-        let generation_config = json!({
+        let mut generation_config = json!({
             "responseModalities": ["AUDIO"],
             "temperature": 0.7,
             "maxOutputTokens": 1024
         });
+
+        fn merge_json(dst: &mut serde_json::Value, src: serde_json::Value) {
+            match (dst, src) {
+                (serde_json::Value::Object(dst_obj), serde_json::Value::Object(src_obj)) => {
+                    for (k, v) in src_obj {
+                        match dst_obj.get_mut(&k) {
+                            Some(existing) => merge_json(existing, v),
+                            None => {
+                                dst_obj.insert(k, v);
+                            }
+                        }
+                    }
+                }
+                (dst_slot, src_other) => {
+                    *dst_slot = src_other;
+                }
+            }
+        }
+
+        if let Some(ov) = overrides.generation_config {
+            merge_json(&mut generation_config, ov);
+        }
 
         let system_instruction = Content {
             role: Some("system".to_string()),
@@ -259,24 +296,31 @@ impl ClientMessage {
             }],
         };
 
+        let default_realtime_input_config = json!({
+            "automaticActivityDetection": {
+                "disabled": false,
+                "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
+                "endOfSpeechSensitivity": "END_SENSITIVITY_LOW",
+                "prefixPaddingMs": 60,
+                "silenceDurationMs": 900
+            }
+        });
+
+        let mut realtime_input_config = default_realtime_input_config;
+        if let Some(ov) = overrides.realtime_input_config {
+            merge_json(&mut realtime_input_config, ov);
+        }
+
         let setup = Setup {
             model: "models/gemini-2.5-flash-native-audio-preview-12-2025".to_string(),
             generationConfig: generation_config,
             systemInstruction: Some(system_instruction),
             tools: tool_defs,
-            // Enable automatic (server-side) VAD; tune for slower speech.
-            realtimeInputConfig: Some(json!({
-                "automaticActivityDetection": {
-                    "disabled": false,
-                    "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
-                    "endOfSpeechSensitivity": "END_SENSITIVITY_LOW",
-                    "prefixPaddingMs": 60,
-                    "silenceDurationMs": 900
-                }
-            })),
+            // Enable automatic (server-side) VAD; tune per call via overrides.
+            realtimeInputConfig: Some(realtime_input_config),
             // Enable transcriptions (we use these for admin monitoring).
-            inputAudioTranscription: Some(json!({})),
-            outputAudioTranscription: Some(json!({})),
+            inputAudioTranscription: Some(overrides.input_audio_transcription.unwrap_or_else(|| json!({}))),
+            outputAudioTranscription: Some(overrides.output_audio_transcription.unwrap_or_else(|| json!({}))),
             // Keep sessions alive across websocket resets (only include if we actually have a handle).
             sessionResumption: resume_handle.map(|h| SessionResumptionConfig { handle: Some(h) }),
             // Avoid hitting the 128k context cap in long calls.
@@ -441,13 +485,97 @@ fn build_function_declarations(tools: Vec<mcp::ToolDefinition>) -> Vec<serde_jso
         return vec![];
     }
 
+    fn jsonschema_type_to_gemini_enum(t: &str) -> Option<&'static str> {
+        match t {
+            "object" => Some("OBJECT"),
+            "string" => Some("STRING"),
+            "number" => Some("NUMBER"),
+            "integer" => Some("INTEGER"),
+            "boolean" => Some("BOOLEAN"),
+            "array" => Some("ARRAY"),
+            _ => None,
+        }
+    }
+
+    // Gemini Live API function declarations use the Generative Language "Schema" proto, whose `type`
+    // is an enum serialized as strings like "OBJECT"/"STRING" in JSON. Our MCP tools use JSON Schema
+    // ("object"/"string"/...) so we need a small conversion layer or tools simply won't be callable.
+    fn jsonschema_to_gemini_schema(v: serde_json::Value) -> serde_json::Value {
+        use serde_json::{Map, Value};
+
+        let Value::Object(obj) = v else {
+            return json!({});
+        };
+
+        // type can be string or array (e.g. ["string","null"])
+        let (type_enum, nullable) = match obj.get("type") {
+            Some(Value::String(t)) => (jsonschema_type_to_gemini_enum(t).unwrap_or("OBJECT"), false),
+            Some(Value::Array(arr)) => {
+                let mut nullable = false;
+                let mut chosen: Option<&'static str> = None;
+                for item in arr {
+                    if let Value::String(s) = item {
+                        if s == "null" {
+                            nullable = true;
+                            continue;
+                        }
+                        if chosen.is_none() {
+                            chosen = jsonschema_type_to_gemini_enum(s);
+                        }
+                    }
+                }
+                (chosen.unwrap_or("OBJECT"), nullable)
+            }
+            _ => {
+                // if type is missing but properties exist, assume object
+                if obj.get("properties").is_some() { ("OBJECT", false) } else { ("OBJECT", false) }
+            }
+        };
+
+        let mut out = Map::new();
+        out.insert("type".to_string(), Value::String(type_enum.to_string()));
+
+        if let Some(Value::String(desc)) = obj.get("description") {
+            out.insert("description".to_string(), Value::String(desc.clone()));
+        }
+        if let Some(Value::Array(en)) = obj.get("enum") {
+            out.insert("enum".to_string(), Value::Array(en.clone()));
+        }
+        if nullable {
+            out.insert("nullable".to_string(), Value::Bool(true));
+        }
+
+        // object
+        if type_enum == "OBJECT" {
+            if let Some(Value::Object(props)) = obj.get("properties") {
+                let mut new_props = Map::new();
+                for (k, v) in props {
+                    new_props.insert(k.clone(), jsonschema_to_gemini_schema(v.clone()));
+                }
+                out.insert("properties".to_string(), Value::Object(new_props));
+            }
+            if let Some(Value::Array(req)) = obj.get("required") {
+                out.insert("required".to_string(), Value::Array(req.clone()));
+            }
+        }
+
+        // array
+        if type_enum == "ARRAY" {
+            if let Some(items) = obj.get("items") {
+                out.insert("items".to_string(), jsonschema_to_gemini_schema(items.clone()));
+            }
+        }
+
+        Value::Object(out)
+    }
+
     let fns: Vec<serde_json::Value> = tools
         .into_iter()
         .map(|t| {
             json!({
                 "name": t.name,
                 "description": t.description,
-                "parameters": t.input_schema
+                "parameters": jsonschema_to_gemini_schema(t.input_schema)
             })
         })
         .collect();

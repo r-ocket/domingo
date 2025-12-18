@@ -89,6 +89,25 @@ impl CallService {
     ) -> DomainResult<()> {
         CallSessionRepository::add_tool_used(pool, session_id, tool_name).await
     }
+
+    /// Persist per-call metadata (used for Gemini Live per-call overrides from the admin call center).
+    pub async fn set_metadata(
+        pool: &PostgresPool,
+        session_id: Uuid,
+        metadata: serde_json::Value,
+    ) -> DomainResult<CallSession> {
+        let update_req = UpdateCallSessionRequest {
+            status: None,
+            ended_at: None,
+            duration_seconds: None,
+            summary_text: None,
+            transcript: None,
+            tools_used: None,
+            transferred_to: None,
+            metadata: Some(metadata),
+        };
+        CallSessionRepository::update(pool, session_id, &update_req).await
+    }
     
     /// Get session by Twilio call SID
     pub async fn get_session_by_sid(

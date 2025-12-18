@@ -37,6 +37,10 @@ pub struct ToolCallEntry {
     pub name: String,
     pub arguments: String,
     pub result: Option<String>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub is_error: Option<bool>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub duration_ms: Option<i64>,
     pub timestamp: DateTime<Utc>,
 }
 
@@ -124,6 +128,10 @@ pub enum CallEvent {
         call_sid: String,
         id: String,
         result: String,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        is_error: Option<bool>,
+        #[serde(skip_serializing_if = "Option::is_none")]
+        duration_ms: Option<i64>,
     },
     /// Call ended
     CallEnded {
@@ -168,6 +176,10 @@ pub struct CallStateStore {
     elevenlabs_conversations: DashMap<String, ElevenLabsConversation>,
     /// Reverse lookup: call_sid → ElevenLabs conversation_id
     call_to_elevenlabs: DashMap<String, String>,
+
+    /// Pending per-call configuration overrides captured at call initiation time (debug call center).
+    /// Keyed by Twilio call_sid.
+    pending_call_configs: DashMap<String, serde_json::Value>,
 }
 
 impl Default for CallStateStore {
@@ -188,7 +200,18 @@ impl CallStateStore {
             call_to_mcp_token: DashMap::new(),
             elevenlabs_conversations: DashMap::new(),
             call_to_elevenlabs: DashMap::new(),
+            pending_call_configs: DashMap::new(),
         }
+    }
+
+    /// Stash per-call overrides to be persisted once Twilio hits our webhook and a call_session exists.
+    pub fn set_pending_call_config(&self, call_sid: String, config: serde_json::Value) {
+        self.pending_call_configs.insert(call_sid, config);
+    }
+
+    /// Retrieve + remove any pending per-call config for this call_sid.
+    pub fn take_pending_call_config(&self, call_sid: &str) -> Option<serde_json::Value> {
+        self.pending_call_configs.remove(call_sid).map(|(_, v)| v)
     }
 
     /// Start tracking a new call
@@ -250,23 +273,26 @@ impl CallStateStore {
         is_partial: bool,
     ) {
         if let Some(mut call) = self.calls.get_mut(call_sid) {
-            // If this is a partial update for the same speaker, replace the last entry
-            if is_partial {
-                if let Some(last) = call.transcript.last_mut() {
-                    if last.speaker == speaker && last.is_partial {
-                        last.text = text.clone();
-                        last.timestamp = Utc::now();
-                        // Don't add a new entry, just broadcast update
-                        let event = CallEvent::Transcript {
-                            call_sid: call_sid.to_string(),
-                            speaker,
-                            text,
-                            is_partial,
-                        };
-                        drop(call); // Release lock before broadcast
-                        self.broadcast(call_sid, event);
-                        return;
+            // If the last entry is a partial for the same speaker, update it in-place
+            // - partial -> partial: just update text
+            // - partial -> final: update text and flip is_partial=false (commit the bubble)
+            if let Some(last) = call.transcript.last_mut() {
+                if last.speaker == speaker && last.is_partial {
+                    last.text = text.clone();
+                    last.timestamp = Utc::now();
+                    if !is_partial {
+                        last.is_partial = false;
                     }
+
+                    let event = CallEvent::Transcript {
+                        call_sid: call_sid.to_string(),
+                        speaker,
+                        text,
+                        is_partial,
+                    };
+                    drop(call); // Release lock before broadcast
+                    self.broadcast(call_sid, event);
+                    return;
                 }
             }
             
@@ -296,6 +322,8 @@ impl CallStateStore {
                 name: name.clone(),
                 arguments: arguments.clone(),
                 result: None,
+                is_error: None,
+                duration_ms: None,
                 timestamp: Utc::now(),
             });
         }
@@ -311,9 +339,24 @@ impl CallStateStore {
 
     /// Complete a tool call with result
     pub fn complete_tool_call(&self, call_sid: &str, id: &str, result: String) {
+        self.complete_tool_call_with_meta(call_sid, id, result, None);
+    }
+
+    /// Complete a tool call with result + optional error flag.
+    pub fn complete_tool_call_with_meta(
+        &self,
+        call_sid: &str,
+        id: &str,
+        result: String,
+        is_error: Option<bool>,
+    ) {
+        let mut duration_ms: Option<i64> = None;
         if let Some(mut call) = self.calls.get_mut(call_sid) {
             if let Some(tool_call) = call.tool_calls.iter_mut().find(|tc| tc.id == id) {
                 tool_call.result = Some(result.clone());
+                tool_call.is_error = is_error;
+                duration_ms = Some((Utc::now() - tool_call.timestamp).num_milliseconds());
+                tool_call.duration_ms = duration_ms;
             }
         }
         
@@ -321,6 +364,8 @@ impl CallStateStore {
             call_sid: call_sid.to_string(),
             id: id.to_string(),
             result,
+            is_error,
+            duration_ms,
         };
         self.broadcast(call_sid, event);
     }

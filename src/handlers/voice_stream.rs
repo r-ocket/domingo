@@ -17,6 +17,7 @@ use crate::clients::{
     RealtimeServerEvent, build_assistant_tools,
     AgentConfig, ServerMessage as ElevenLabsServerMessage,
     build_elevenlabs_tools, ELEVENLABS_SYSTEM_PROMPT,
+    gemini_live::GeminiLiveSetupOverrides,
     audio::{twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes, gemini_pcm16_24khz_bytes_to_twilio_ulaw_base64},
 };
 use crate::domain::{CallStatus, Elder, LocationType, VoiceProvider};
@@ -81,7 +82,38 @@ async fn handle_media_stream(
     // Build dynamic context with elder's data
     let dynamic_prompt = build_dynamic_prompt(&state, &elder).await;
     // Full system instruction: behavioral prompt + per-elder context
-    let full_prompt = format!("{}\n\n---\n\n{}", crate::clients::SYSTEM_PROMPT, dynamic_prompt);
+    let mut full_prompt = format!("{}\n\n---\n\n{}", crate::clients::SYSTEM_PROMPT, dynamic_prompt);
+
+    // Per-call overrides (from call_sessions.metadata, set by the call center debug UI).
+    let mut gemini_overrides = GeminiLiveSetupOverrides::default();
+    if let Some(meta) = session.metadata.as_ref() {
+        if let Some(p) = meta.get("prompt_override").and_then(|v| v.as_str()) {
+            let p = p.trim();
+            if !p.is_empty() {
+                full_prompt.push_str("\n\n---\n\n## instrucciones extra (solo para esta llamada)\n");
+                full_prompt.push_str(p);
+            }
+        }
+
+        if let Some(gemini) = meta.get("gemini").and_then(|v| v.as_object()) {
+            if let Some(gc) = gemini.get("generationConfig") {
+                if !gc.is_null() {
+                    gemini_overrides.generation_config = Some(gc.clone());
+                }
+            }
+            if let Some(ric) = gemini.get("realtimeInputConfig") {
+                if !ric.is_null() {
+                    gemini_overrides.realtime_input_config = Some(ric.clone());
+                }
+            }
+            if let Some(tc) = gemini.get("transcriptionConfig") {
+                if !tc.is_null() {
+                    gemini_overrides.input_audio_transcription = Some(tc.clone());
+                    gemini_overrides.output_audio_transcription = Some(tc.clone());
+                }
+            }
+        }
+    }
     
     // Create tool context for MCP
     let tool_ctx = ToolContext {
@@ -93,45 +125,25 @@ async fn handle_media_stream(
         call_sid: call_sid.clone(),
     };
     
-    // Dispatch to appropriate handler based on voice provider
-    match session.voice_provider {
-        VoiceProvider::OpenaiRealtime => {
-            handle_openai_stream(
-                &state,
-                &mut ws_sender,
-                &mut ws_receiver,
-                &call_sid,
-                &elder,
-                session.id,
-                full_prompt,
-                tool_ctx,
-            ).await;
-        }
-        VoiceProvider::Elevenlabs => {
-            handle_elevenlabs_stream(
-                &state,
-                &mut ws_sender,
-                &mut ws_receiver,
-                &call_sid,
-                &elder,
-                session.id,
-                dynamic_prompt,
-                tool_ctx,
-            ).await;
-        }
-        VoiceProvider::GeminiLive => {
-            handle_gemini_stream(
-                &state,
-                &mut ws_sender,
-                &mut ws_receiver,
-                &call_sid,
-                &elder,
-                session.id,
-                full_prompt,
-                tool_ctx,
-            ).await;
-        }
+    // For now we are gemini-only at runtime (keeping other providers in code).
+    if session.voice_provider != VoiceProvider::GeminiLive {
+        tracing::warn!(
+            requested = %session.voice_provider.to_string(),
+            "voice provider coerced to gemini_live (gemini-only runtime)"
+        );
     }
+
+    handle_gemini_stream(
+        &state,
+        &mut ws_sender,
+        &mut ws_receiver,
+        &call_sid,
+        &elder,
+        session.id,
+        full_prompt,
+        tool_ctx,
+        gemini_overrides,
+    ).await;
     
     // End call in live state store
     state.call_state.end_call(&call_sid, false);
@@ -149,6 +161,7 @@ async fn handle_gemini_stream(
     session_id: Uuid,
     dynamic_prompt: String,
     tool_ctx: ToolContext,
+    gemini_overrides: GeminiLiveSetupOverrides,
 ) {
     if state.config.gemini_api_key.is_empty() {
         tracing::error!("GEMINI_API_KEY/GOOGLE_API_KEY not set; cannot start Gemini Live session");
@@ -189,20 +202,67 @@ async fn handle_gemini_stream(
     let state_clone = state.clone();
     let call_sid_for_gemini = call_sid.to_string();
     let tool_ctx_clone = tool_ctx.clone();
+    let gemini_overrides = gemini_overrides.clone();
     tokio::spawn(async move {
         use crate::clients::gemini_live::FunctionResponse;
+        use std::collections::HashSet;
 
         let client = state_clone.gemini.clone();
         let mut resume_handle: Option<String> = None;
         let mut greeted = false;
         let mut pending_greeting = false;
+        let mut current_user_text = String::new();
+        let mut current_assistant_text = String::new();
+        let mut cancelled_tool_call_ids: HashSet<String> = HashSet::new();
 
         // Tool declarations come from our MCP registry.
         let tools: Vec<crate::mcp::ToolDefinition> = crate::mcp::ToolRegistry::list_tools();
 
+        fn merge_streaming_text(current: &mut String, incoming: &str) {
+            let incoming = incoming.trim();
+            if incoming.is_empty() {
+                return;
+            }
+            if current.is_empty() {
+                current.push_str(incoming);
+                return;
+            }
+            // Some streams send cumulative text; some send deltas.
+            if incoming.starts_with(current.as_str()) {
+                current.clear();
+                current.push_str(incoming);
+                return;
+            }
+            if current.starts_with(incoming) {
+                // ignore regressions (can happen with partial rescoring)
+                return;
+            }
+            // otherwise treat as delta and append with spacing
+            if !current.ends_with(' ') && !incoming.starts_with(' ') {
+                current.push(' ');
+            }
+            current.push_str(incoming);
+        }
+
+        fn maybe_commit_final(
+            call_state: &crate::services::CallStateStore,
+            call_sid: &str,
+            speaker: Speaker,
+            current: &mut String,
+        ) -> Option<String> {
+            let final_text = current.trim().to_string();
+            if final_text.is_empty() {
+                current.clear();
+                return None;
+            }
+            call_state.add_transcript(call_sid, speaker, final_text.clone(), false);
+            current.clear();
+            Some(final_text)
+        }
+
         loop {
             let connect_result = client
-                .connect_live(dynamic_prompt.clone(), tools.clone(), resume_handle.clone())
+                .connect_live(dynamic_prompt.clone(), tools.clone(), resume_handle.clone(), gemini_overrides.clone())
                 .await;
 
             let mut session = match connect_result {
@@ -315,27 +375,47 @@ async fn handle_gemini_stream(
                             // Input transcription (user)
                             if let Some(t) = content.input_transcription {
                                 tracing::debug!(text = %t.text, "Gemini input transcription");
+                                merge_streaming_text(&mut current_user_text, &t.text);
                                 state_clone.call_state.add_transcript(
                                     &call_sid_for_gemini,
                                     Speaker::User,
-                                    t.text.clone(),
-                                    false,
+                                    current_user_text.clone(),
+                                    true,
                                 );
                             }
                             // Output transcription (assistant)
                             if let Some(t) = content.output_transcription {
                                 tracing::debug!(text = %t.text, "Gemini output transcription");
-                                {
-                                    let mut acc = transcript_clone.lock().await;
-                                    acc.push_str(&t.text);
-                                    acc.push(' ');
-                                }
+                                // if user was mid-partial, commit it once the assistant starts responding
+                                let _ = maybe_commit_final(&state_clone.call_state, &call_sid_for_gemini, Speaker::User, &mut current_user_text);
+
+                                merge_streaming_text(&mut current_assistant_text, &t.text);
                                 state_clone.call_state.add_transcript(
                                     &call_sid_for_gemini,
                                     Speaker::Assistant,
-                                    t.text,
-                                    false,
+                                    current_assistant_text.clone(),
+                                    true,
                                 );
+                            }
+
+                            // Turn boundaries: commit any partial bubbles
+                            let turn_done =
+                                content.turn_complete.unwrap_or(false)
+                                || content.generation_complete.unwrap_or(false)
+                                || content.interrupted.unwrap_or(false);
+
+                            if turn_done {
+                                if let Some(final_text) = maybe_commit_final(
+                                    &state_clone.call_state,
+                                    &call_sid_for_gemini,
+                                    Speaker::Assistant,
+                                    &mut current_assistant_text,
+                                ) {
+                                    let mut acc = transcript_clone.lock().await;
+                                    acc.push_str(&final_text);
+                                    acc.push('\n');
+                                }
+                                let _ = maybe_commit_final(&state_clone.call_state, &call_sid_for_gemini, Speaker::User, &mut current_user_text);
                             }
 
                             // Audio chunks
@@ -360,23 +440,33 @@ async fn handle_gemini_stream(
                             }
                         }
 
-                        // Tool calls will be wired in the next todo; for now we must respond with empty responses if they occur.
+                        // Tool calls (function calling)
                         if let Some(tool_call) = msg.tool_call {
                             if !tool_call.function_calls.is_empty() {
+                                // commit any pending partial user text before we act on tools
+                                let _ = maybe_commit_final(&state_clone.call_state, &call_sid_for_gemini, Speaker::User, &mut current_user_text);
+
                                 let mut function_responses: Vec<FunctionResponse> = Vec::with_capacity(tool_call.function_calls.len());
 
                                 for fc in tool_call.function_calls {
+                                    if cancelled_tool_call_ids.contains(&fc.id) {
+                                        tracing::info!(id = %fc.id, name = %fc.name, "skipping cancelled tool call");
+                                        continue;
+                                    }
+
+                                    let call_id = fc.id.clone();
+                                    let tool_name = fc.name.clone();
                                     let args_str = serde_json::to_string(&fc.args).unwrap_or_default();
                                     state_clone.call_state.add_tool_call(
                                         &call_sid_for_gemini,
-                                        fc.id.clone(),
-                                        fc.name.clone(),
+                                        call_id.clone(),
+                                        tool_name.clone(),
                                         args_str.clone(),
                                     );
 
                                     // Execute via MCP (local tool runtime)
-                                    let result = crate::mcp::execute_tool(&tool_ctx_clone, &fc.name, fc.args).await;
-                                    let _ = CallService::record_tool_usage(&state_clone.db, session_id, &fc.name).await;
+                                    let result = crate::mcp::execute_tool(&tool_ctx_clone, &tool_name, fc.args).await;
+                                    let _ = CallService::record_tool_usage(&state_clone.db, session_id, &tool_name).await;
 
                                     // Convert MCP result to JSON value
                                     let result_json: serde_json::Value = if let Some(text_content) = result.content.first() {
@@ -390,17 +480,41 @@ async fn handle_gemini_stream(
                                         json!({ "error": "no_result" })
                                     };
 
+                                    let is_error = result.is_error.unwrap_or(false)
+                                        || result_json.get("error").is_some()
+                                        || result_json.get("errors").is_some();
+
+                                    let scheduling = match tool_name.as_str() {
+                                        // transfers should interrupt the assistant immediately
+                                        "call_contact" => "INTERRUPT",
+                                        // ride booking is usually ok to interrupt too (it changes the conversation state)
+                                        "request_ride" => "INTERRUPT",
+                                        _ => "WHEN_IDLE",
+                                    };
+
                                     let result_str = serde_json::to_string(&result_json).unwrap_or_default();
-                                    state_clone.call_state.complete_tool_call(
+
+                                    // include optional scheduling hint per Live API tool docs
+                                    // https://ai.google.dev/gemini-api/docs/live-tools
+                                    let response_with_scheduling = match result_json.clone() {
+                                        serde_json::Value::Object(mut obj) => {
+                                            obj.insert("scheduling".to_string(), json!(scheduling));
+                                            serde_json::Value::Object(obj)
+                                        }
+                                        other => json!({ "result": other, "scheduling": scheduling }),
+                                    };
+
+                                    state_clone.call_state.complete_tool_call_with_meta(
                                         &call_sid_for_gemini,
-                                        &fc.id,
+                                        &call_id,
                                         result_str,
+                                        Some(is_error),
                                     );
 
                                     function_responses.push(FunctionResponse {
-                                        id: fc.id,
-                                        name: fc.name,
-                                        response: result_json,
+                                        id: call_id,
+                                        name: tool_name,
+                                        response: response_with_scheduling,
                                     });
                                 }
 
@@ -410,10 +524,12 @@ async fn handle_gemini_stream(
 
                         if let Some(cancel) = msg.tool_call_cancellation {
                             for id in cancel.ids {
-                                state_clone.call_state.complete_tool_call(
+                                cancelled_tool_call_ids.insert(id.clone());
+                                state_clone.call_state.complete_tool_call_with_meta(
                                     &call_sid_for_gemini,
                                     &id,
                                     "{\"error\":\"tool_call_cancelled\"}".to_string(),
+                                    Some(true),
                                 );
                             }
                         }
@@ -497,6 +613,7 @@ async fn handle_gemini_stream(
 }
 
 /// Handle OpenAI Realtime voice stream
+#[allow(dead_code)]
 async fn handle_openai_stream(
     state: &AppState,
     ws_sender: &mut futures_util::stream::SplitSink<axum::extract::ws::WebSocket, axum::extract::ws::Message>,
@@ -730,6 +847,7 @@ async fn handle_openai_stream(
 }
 
 /// Handle ElevenLabs Conversational AI voice stream
+#[allow(dead_code)]
 async fn handle_elevenlabs_stream(
     state: &AppState,
     ws_sender: &mut futures_util::stream::SplitSink<axum::extract::ws::WebSocket, axum::extract::ws::Message>,

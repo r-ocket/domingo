@@ -51,6 +51,7 @@ impl ToolRegistry {
                 description: "Solicitar un viaje en Uber. Usa los nombres de ubicaciones que están en el contexto.".to_string(),
                 input_schema: json!({
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "to_location": {
                             "type": "string",
@@ -69,6 +70,7 @@ impl ToolRegistry {
                 description: "Transferir la llamada a un contacto. Usa el nombre exacto del contacto que aparece en el contexto.".to_string(),
                 input_schema: json!({
                     "type": "object",
+                    "additionalProperties": false,
                     "properties": {
                         "contact_name": {
                             "type": "string",
@@ -124,8 +126,17 @@ async fn execute_request_ride(ctx: &ToolContext, args: Value) -> CallToolResult 
             CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
         }
         Err(e) => {
-            let result = json!({ "error": e.to_string() });
-            CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
+            let result = json!({
+                "success": false,
+                "error": {
+                    "code": "RIDE_BOOK_FAILED",
+                    "message": e.to_string()
+                }
+            });
+            CallToolResult {
+                content: vec![crate::mcp::ToolResultContent::Text { text: serde_json::to_string_pretty(&result).unwrap_or_default() }],
+                is_error: Some(true),
+            }
         }
     }
 }
@@ -143,6 +154,28 @@ async fn execute_call_contact(ctx: &ToolContext, args: Value) -> CallToolResult 
     };
 
     match ContactService::search_contacts(&ctx.db, ctx.elder_id, query).await {
+        Ok(contacts) if contacts.len() > 1 => {
+            let matches: Vec<_> = contacts.iter().take(5).map(|c| {
+                json!({
+                    "name": c.name,
+                    "relationship": c.relationship,
+                    "is_emergency": c.is_emergency
+                })
+            }).collect();
+
+            let result = json!({
+                "success": false,
+                "error": {
+                    "code": "CONTACT_AMBIGUOUS",
+                    "message": format!("Encontré varios contactos que coinciden con '{}'. Pídele al usuario que confirme el nombre EXACTO.", query)
+                },
+                "matches": matches
+            });
+            return CallToolResult {
+                content: vec![crate::mcp::ToolResultContent::Text { text: serde_json::to_string_pretty(&result).unwrap_or_default() }],
+                is_error: Some(true),
+            };
+        }
         Ok(contacts) if !contacts.is_empty() => {
             let contact = &contacts[0];
             tracing::info!("Transferring call to {} at {}", contact.name, contact.phone);
@@ -167,23 +200,48 @@ async fn execute_call_contact(ctx: &ToolContext, args: Value) -> CallToolResult 
                     CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
                 }
                 Err(e) => {
-                    let result = json!({ "error": format!("No pude transferir la llamada: {}", e) });
-                    CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
+                    let result = json!({
+                        "success": false,
+                        "error": {
+                            "code": "TRANSFER_FAILED",
+                            "message": format!("No pude transferir la llamada: {}", e)
+                        }
+                    });
+                    CallToolResult {
+                        content: vec![crate::mcp::ToolResultContent::Text { text: serde_json::to_string_pretty(&result).unwrap_or_default() }],
+                        is_error: Some(true),
+                    }
                 }
             }
         }
         Ok(_) => {
-            let result = json!({ 
-                "error": format!(
-                    "No encontré un contacto llamado '{}'. Revisa los nombres en la lista de contactos.",
-                    query
-                )
+            let result = json!({
+                "success": false,
+                "error": {
+                    "code": "CONTACT_NOT_FOUND",
+                    "message": format!(
+                        "No encontré un contacto llamado '{}'. Revisa los nombres en la lista de contactos.",
+                        query
+                    )
+                }
             });
-            CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
+            CallToolResult {
+                content: vec![crate::mcp::ToolResultContent::Text { text: serde_json::to_string_pretty(&result).unwrap_or_default() }],
+                is_error: Some(true),
+            }
         }
         Err(e) => {
-            let result = json!({ "error": e.to_string() });
-            CallToolResult::text(serde_json::to_string_pretty(&result).unwrap_or_default())
+            let result = json!({
+                "success": false,
+                "error": {
+                    "code": "CONTACT_SEARCH_FAILED",
+                    "message": e.to_string()
+                }
+            });
+            CallToolResult {
+                content: vec![crate::mcp::ToolResultContent::Text { text: serde_json::to_string_pretty(&result).unwrap_or_default() }],
+                is_error: Some(true),
+            }
         }
     }
 }

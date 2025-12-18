@@ -465,6 +465,7 @@ pub struct OpenAIApiError {
 /// Build the tool definitions for the voice assistant
 /// Only includes tools that require real actions (Uber, call transfer)
 /// All other info (medications, contacts, locations) is in the context
+#[allow(dead_code)]
 pub fn build_assistant_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(

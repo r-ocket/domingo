@@ -9,6 +9,7 @@ use axum::{
     Json,
 };
 use serde::{Deserialize, Serialize};
+use serde_json::Value;
 use uuid::Uuid;
 
 use crate::domain::{CreateCaregiverRequest, CreateElderRequest, UserRole};
@@ -177,9 +178,29 @@ pub async fn create_elder(
 #[derive(Debug, Deserialize)]
 pub struct InitiateCallRequest {
     pub elder_id: Uuid,
-    /// Voice provider to use: "gemini_live", "openai_realtime" or "elevenlabs" (defaults to gemini_live)
+    /// Voice provider to use: "gemini_live" (other values accepted but coerced to gemini_live for now)
     #[serde(default)]
     pub voice_provider: Option<String>,
+    /// Optional per-call prompt override (appended after the standard system prompt + dynamic elder context)
+    #[serde(default)]
+    pub prompt_override: Option<String>,
+    /// Optional Gemini Live setup overrides (generationConfig / VAD / transcription knobs)
+    #[serde(default)]
+    pub gemini: Option<GeminiLiveDebugConfig>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+#[serde(rename_all = "camelCase")]
+pub struct GeminiLiveDebugConfig {
+    /// Merged into default `generationConfig`
+    #[serde(default)]
+    pub generation_config: Option<Value>,
+    /// Merged into default `realtimeInputConfig`
+    #[serde(default)]
+    pub realtime_input_config: Option<Value>,
+    /// Used as both `inputAudioTranscription` and `outputAudioTranscription` if provided
+    #[serde(default)]
+    pub transcription_config: Option<Value>,
 }
 
 /// Response for initiated call
@@ -200,10 +221,14 @@ pub async fn initiate_call(
 ) -> Result<impl IntoResponse, DebugError> {
     tracing::info!("Initiating outbound call to elder");
     
-    // Parse voice provider (default to Gemini Live)
-    let voice_provider = req.voice_provider
-        .as_deref()
-        .unwrap_or("gemini_live");
+    // Parse voice provider (default to Gemini Live). For now we are gemini-only: coerce anything else.
+    let voice_provider = match req.voice_provider.as_deref() {
+        Some("gemini_live") | Some("gemini") | Some("gemini-live") | None => "gemini_live",
+        Some(other) => {
+            tracing::warn!(requested = %other, "debug initiate_call: voice_provider coerced to gemini_live");
+            "gemini_live"
+        }
+    };
     
     // Look up elder
     let elder = ElderRepository::find_by_id(&state.db, req.elder_id).await
@@ -217,6 +242,18 @@ pub async fn initiate_call(
     let call_response = state.twilio.make_call(&elder.phone_number, &twiml_url).await
         .map_err(|e| DebugError::Twilio(e))?;
     
+    // Stash per-call overrides in memory; we'll persist to call_sessions.metadata once Twilio hits our webhook.
+    // This keeps the "command center" controls tied to the call.
+    let per_call_config = serde_json::json!({
+        "prompt_override": req.prompt_override.unwrap_or_default(),
+        "gemini": {
+            "generationConfig": req.gemini.as_ref().and_then(|g| g.generation_config.clone()),
+            "realtimeInputConfig": req.gemini.as_ref().and_then(|g| g.realtime_input_config.clone()),
+            "transcriptionConfig": req.gemini.as_ref().and_then(|g| g.transcription_config.clone()),
+        }
+    });
+    state.call_state.set_pending_call_config(call_response.sid.clone(), per_call_config);
+
     tracing::info!(call_sid = %call_response.sid, voice_provider = %voice_provider, "Outbound call initiated");
     
     Ok((StatusCode::OK, Json(InitiateCallResponse {

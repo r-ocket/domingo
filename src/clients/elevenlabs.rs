@@ -430,6 +430,7 @@ pub enum ElevenLabsError {
 }
 
 /// Build the tool definitions for ElevenLabs (same tools as OpenAI)
+#[allow(dead_code)]
 pub fn build_elevenlabs_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(
@@ -468,6 +469,7 @@ pub fn build_elevenlabs_tools() -> Vec<ToolDefinition> {
 }
 
 /// System prompt for ElevenLabs (same as OpenAI, adapted slightly)
+#[allow(dead_code)]
 pub const ELEVENLABS_SYSTEM_PROMPT: &str = r#"## Identidad
 Eres Domingo, un asistente telefónico cálido y paciente diseñado para adultos mayores en México. Tu voz es reconfortante como la de un familiar querido. Hablas español mexicano con claridad y a un ritmo pausado.
 

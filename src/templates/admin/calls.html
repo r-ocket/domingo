@@ -40,18 +40,112 @@
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Motor de Voz</label>
-                                <select x-model="callForm.voice_provider" class="form-select">
+                                <select x-model="callForm.voice_provider" class="form-select" disabled>
                                     <option value="gemini_live">Gemini Live (Gemini API)</option>
-                                    <option value="openai_realtime">GPT-Realtime (OpenAI)</option>
-                                    <option value="elevenlabs">ElevenLabs (Claude 4.5)</option>
                                 </select>
                                 <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'gemini_live'">
                                     Gemini Live API (audio nativo) + tools
                                 </p>
-                                <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'elevenlabs'">
-                                    Usa Flash 2.5 con voz Juan Campillo y Claude Sonnet 4.5
+                                <p class="form-hint text-xs mt-1 text-stone-500">
+                                    por ahora: gemini live ONLY
                                 </p>
                             </div>
+                            <div class="form-group">
+                                <label class="form-label">prompt override (opcional)</label>
+                                <textarea
+                                    x-model="callForm.prompt_override"
+                                    class="form-textarea"
+                                    rows="5"
+                                    placeholder="instrucciones extra para ESTA llamada (se agregan al final del system prompt + contexto del usuario)"
+                                ></textarea>
+                                <p class="form-hint text-xs mt-1 text-stone-500">
+                                    tip: usa esto para experimentar con estilo/tono, uso de tools, etc., sin redeploy.
+                                </p>
+                            </div>
+                            <details class="rounded border border-surface-700/50 bg-surface-800/30 p-3">
+                                <summary class="cursor-pointer text-sm text-stone-200">config gemini live (avanzado)</summary>
+                                <div class="mt-3 space-y-3">
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">temperature</label>
+                                            <input type="number" step="0.05" min="0" max="2" x-model.number="callForm.gemini.generationConfig.temperature" class="form-input" />
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">maxOutputTokens</label>
+                                            <input type="number" step="1" min="64" max="8192" x-model.number="callForm.gemini.generationConfig.maxOutputTokens" class="form-input" />
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">reasoningEffort</label>
+                                            <select x-model="callForm.gemini.generationConfig.reasoningEffort" class="form-select">
+                                                <option value="low">low</option>
+                                                <option value="medium">medium</option>
+                                                <option value="high">high</option>
+                                            </select>
+                                            <p class="form-hint text-xs mt-1 text-stone-500">
+                                                best-effort key; may be ignored if unsupported.
+                                            </p>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">thinkingBudget</label>
+                                            <input type="number" step="1" min="0" x-model.number="callForm.gemini.generationConfig.thinkingBudget" class="form-input" />
+                                            <p class="form-hint text-xs mt-1 text-stone-500">
+                                                set 0 to disable/leave default.
+                                            </p>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label text-xs">transcription languageCode</label>
+                                        <input type="text" x-model="callForm.gemini.transcriptionConfig.languageCode" class="form-input" placeholder="es-US" />
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">vad prefixPaddingMs</label>
+                                            <input type="number" step="10" min="0" x-model.number="callForm.gemini.realtimeInputConfig.automaticActivityDetection.prefixPaddingMs" class="form-input" />
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">vad silenceDurationMs</label>
+                                            <input type="number" step="50" min="200" x-model.number="callForm.gemini.realtimeInputConfig.automaticActivityDetection.silenceDurationMs" class="form-input" />
+                                        </div>
+                                    </div>
+
+                                    <div class="grid grid-cols-2 gap-3">
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">vad startOfSpeechSensitivity</label>
+                                            <select x-model="callForm.gemini.realtimeInputConfig.automaticActivityDetection.startOfSpeechSensitivity" class="form-select">
+                                                <option value="START_SENSITIVITY_LOW">START_SENSITIVITY_LOW</option>
+                                                <option value="START_SENSITIVITY_MEDIUM">START_SENSITIVITY_MEDIUM</option>
+                                                <option value="START_SENSITIVITY_HIGH">START_SENSITIVITY_HIGH</option>
+                                            </select>
+                                        </div>
+                                        <div class="form-group">
+                                            <label class="form-label text-xs">vad endOfSpeechSensitivity</label>
+                                            <select x-model="callForm.gemini.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity" class="form-select">
+                                                <option value="END_SENSITIVITY_LOW">END_SENSITIVITY_LOW</option>
+                                                <option value="END_SENSITIVITY_MEDIUM">END_SENSITIVITY_MEDIUM</option>
+                                                <option value="END_SENSITIVITY_HIGH">END_SENSITIVITY_HIGH</option>
+                                            </select>
+                                        </div>
+                                    </div>
+
+                                    <div class="form-group">
+                                        <label class="form-label text-xs">advanced generationConfig json (optional)</label>
+                                        <textarea x-model="callForm.gemini.advancedGenerationConfigJson" class="form-textarea" rows="4" placeholder='{"someKey":123}'></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label text-xs">advanced realtimeInputConfig json (optional)</label>
+                                        <textarea x-model="callForm.gemini.advancedRealtimeInputConfigJson" class="form-textarea" rows="4" placeholder='{"automaticActivityDetection":{"silenceDurationMs":800}}'></textarea>
+                                    </div>
+                                    <div class="form-group">
+                                        <label class="form-label text-xs">advanced transcriptionConfig json (optional)</label>
+                                        <textarea x-model="callForm.gemini.advancedTranscriptionConfigJson" class="form-textarea" rows="3" placeholder='{"languageCode":"es-US"}'></textarea>
+                                    </div>
+                                </div>
+                            </details>
                             <button type="submit" class="btn btn-primary w-full" :disabled="calling || !callForm.elder_id">
                                 <span x-show="!calling">Iniciar Llamada</span>
                                 <span x-show="calling">Iniciando...</span>
@@ -215,6 +309,8 @@
                                                 <div class="flex items-center gap-2">
                                                     <span class="text-primary-400">⚡</span>
                                                     <span class="font-mono text-sm text-stone-200" x-text="tool.name"></span>
+                                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-surface-900 text-stone-400" x-show="tool.duration_ms !== null" x-text="(tool.duration_ms/1000).toFixed(2) + 's'"></span>
+                                                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-red-500/15 text-red-300" x-show="tool.is_error">error</span>
                                                 </div>
                                                 <span class="text-xs text-stone-500" x-text="formatTime(tool.timestamp)"></span>
                                             </div>
@@ -226,7 +322,9 @@
                                                 <template x-if="tool.result">
                                                     <div>
                                                         <p class="text-xs text-stone-500 mb-1">Resultado:</p>
-                                                        <pre class="text-xs text-emerald-300 bg-surface-900 p-2 rounded overflow-x-auto" x-text="formatJson(tool.result)"></pre>
+                                                        <pre class="text-xs bg-surface-900 p-2 rounded overflow-x-auto"
+                                                             :class="tool.is_error ? 'text-red-300' : 'text-emerald-300'"
+                                                             x-text="formatJson(tool.result)"></pre>
                                                     </div>
                                                 </template>
                                                 <template x-if="!tool.result">
@@ -256,7 +354,35 @@ function callCenter() {
         elders: [],
         selectedCallSid: null,
         activeTab: 'transcript',
-        callForm: { elder_id: '', voice_provider: 'gemini_live' },
+        callForm: {
+            elder_id: '',
+            voice_provider: 'gemini_live',
+            prompt_override: '',
+            gemini: {
+                generationConfig: {
+                    temperature: 0.7,
+                    maxOutputTokens: 1024,
+                    // best-effort: these keys may evolve; advanced users can override via JSON below
+                    reasoningEffort: "medium",
+                    thinkingBudget: 0
+                },
+                realtimeInputConfig: {
+                    automaticActivityDetection: {
+                        disabled: false,
+                        startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
+                        endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
+                        prefixPaddingMs: 60,
+                        silenceDurationMs: 900
+                    }
+                },
+                transcriptionConfig: {
+                    languageCode: "es-US"
+                },
+                advancedGenerationConfigJson: "",
+                advancedRealtimeInputConfigJson: "",
+                advancedTranscriptionConfigJson: ""
+            }
+        },
         calling: false,
         callError: null,
         eventSource: null,
@@ -363,7 +489,7 @@ function callCenter() {
                     break;
 
                 case 'tool_call_completed':
-                    this.completeToolCall(event.call_sid, event.id, event.result);
+                    this.completeToolCall(event.call_sid, event.id, event.result, event.is_error, event.duration_ms);
                     break;
 
                 case 'call_ended':
@@ -386,11 +512,14 @@ function callCenter() {
             const call = this.calls.find(c => c.call_sid === callSid);
             if (!call) return;
 
-            // If partial and same speaker, update last entry
-            if (event.is_partial && call.transcript.length > 0) {
+            // single-bubble transcript behavior:
+            // if the last entry is a partial for the same speaker, update it in place.
+            // when the final arrives (is_partial=false), commit the same bubble (do not add a new one).
+            if (call.transcript.length > 0) {
                 const last = call.transcript[call.transcript.length - 1];
                 if (last.speaker === event.speaker && last.is_partial) {
                     last.text = event.text;
+                    if (!event.is_partial) last.is_partial = false;
                     return;
                 }
             }
@@ -418,17 +547,21 @@ function callCenter() {
                 name: event.name,
                 arguments: event.arguments,
                 result: null,
+                is_error: false,
+                duration_ms: null,
                 timestamp: new Date().toISOString()
             });
         },
 
-        completeToolCall(callSid, toolId, result) {
+        completeToolCall(callSid, toolId, result, isError, durationMs) {
             const call = this.calls.find(c => c.call_sid === callSid);
             if (!call) return;
 
             const tool = call.tool_calls.find(t => t.id === toolId);
             if (tool) {
                 tool.result = result;
+                tool.is_error = !!isError;
+                tool.duration_ms = durationMs || null;
             }
         },
 
@@ -444,10 +577,54 @@ function callCenter() {
             this.callError = null;
             
             try {
+                const payload = JSON.parse(JSON.stringify(this.callForm));
+
+                const deepMerge = (dst, src) => {
+                    if (!src || typeof src !== 'object') return dst;
+                    if (!dst || typeof dst !== 'object') return src;
+                    for (const [k, v] of Object.entries(src)) {
+                        if (v && typeof v === 'object' && !Array.isArray(v)) {
+                            dst[k] = deepMerge(dst[k] || {}, v);
+                        } else {
+                            dst[k] = v;
+                        }
+                    }
+                    return dst;
+                };
+
+                const parseAdvancedJson = (raw, label) => {
+                    const s = (raw || '').trim();
+                    if (!s) return null;
+                    try {
+                        return JSON.parse(s);
+                    } catch (e) {
+                        throw new Error(`${label}: invalid json`);
+                    }
+                };
+
+                // merge advanced overrides into their respective config objects
+                const advGen = parseAdvancedJson(payload.gemini?.advancedGenerationConfigJson, 'advanced generationConfig json');
+                const advVad = parseAdvancedJson(payload.gemini?.advancedRealtimeInputConfigJson, 'advanced realtimeInputConfig json');
+                const advTr = parseAdvancedJson(payload.gemini?.advancedTranscriptionConfigJson, 'advanced transcriptionConfig json');
+
+                if (advGen) payload.gemini.generationConfig = deepMerge(payload.gemini.generationConfig || {}, advGen);
+                if (advVad) payload.gemini.realtimeInputConfig = deepMerge(payload.gemini.realtimeInputConfig || {}, advVad);
+                if (advTr) payload.gemini.transcriptionConfig = deepMerge(payload.gemini.transcriptionConfig || {}, advTr);
+
+                // tidy: avoid sending empty/placeholder keys
+                if (payload.gemini?.generationConfig?.thinkingBudget === 0) delete payload.gemini.generationConfig.thinkingBudget;
+
+                // strip UI-only fields
+                if (payload.gemini) {
+                    delete payload.gemini.advancedGenerationConfigJson;
+                    delete payload.gemini.advancedRealtimeInputConfigJson;
+                    delete payload.gemini.advancedTranscriptionConfigJson;
+                }
+
                 const res = await fetch('/debug/call-elder', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
-                    body: JSON.stringify(this.callForm)
+                    body: JSON.stringify(payload)
                 });
                 
                 const data = await res.json();
@@ -457,10 +634,11 @@ function callCenter() {
                 } else {
                     this.callForm.elder_id = '';
                     this.callForm.voice_provider = 'gemini_live';
+                    this.callForm.prompt_override = '';
                     // The SSE will handle adding the call to the list
                 }
             } catch (e) {
-                this.callError = 'Error de conexión';
+                this.callError = e?.message || 'Error de conexión';
             }
             
             this.calling = false;

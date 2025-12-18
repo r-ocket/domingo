@@ -199,11 +199,14 @@ pub async fn outbound_voice(
 ) -> impl IntoResponse {
     tracing::info!("Processing outbound voice call");
     
-    // Parse voice provider (default to Gemini Live)
-    let voice_provider = params.voice_provider
-        .as_deref()
-        .and_then(|s| s.parse().ok())
-        .unwrap_or(VoiceProvider::GeminiLive);
+    // Parse voice provider (default to Gemini Live). For now we are gemini-only: coerce anything else.
+    let voice_provider = match params.voice_provider.as_deref() {
+        Some("gemini_live") | Some("gemini") | Some("gemini-live") | None => VoiceProvider::GeminiLive,
+        Some(other) => {
+            tracing::warn!(requested = %other, "outbound_voice: voice_provider coerced to gemini_live");
+            VoiceProvider::GeminiLive
+        }
+    };
     
     // Parse elder ID
     let elder_id = match uuid::Uuid::parse_str(&params.elder_id) {
@@ -222,14 +225,50 @@ pub async fn outbound_voice(
     match ElderService::find_elder_by_id(&state.db, elder_id).await {
         Ok(elder) => {
             // Create call session for this outbound call
-            if let Err(e) = CallService::start_session(
+            let session = CallService::start_session(
                 &state.db,
                 elder.id,
                 &payload.call_sid,
                 &payload.to,
                 voice_provider,
-            ).await {
-                tracing::error!("Failed to create call session: {}", e);
+            ).await;
+
+            let session = match session {
+                Ok(s) => s,
+                Err(e) => {
+                    tracing::error!("Failed to create call session: {}", e);
+                    // still connect the stream; the media handler will fail later, but that's consistent w/ current behavior.
+                    // (we could return an error twiml here, but that tends to be worse for debugging)
+                    // fall through with no metadata persistence.
+                    let stream_url = format!(
+                        "wss://{}/api/twilio/media-stream/{}",
+                        state.config.base_url.replace("http://", "").replace("https://", ""),
+                        payload.call_sid
+                    );
+
+                    let twiml = format!(
+                        r#"<?xml version="1.0" encoding="UTF-8"?>
+<Response>
+    <Connect>
+        <Stream url="{}" />
+    </Connect>
+</Response>"#,
+                        stream_url
+                    );
+
+                    return (
+                        StatusCode::OK,
+                        [("Content-Type", "application/xml")],
+                        twiml,
+                    );
+                }
+            };
+
+            // If we have any pending per-call config (from the call center debug UI), persist it.
+            if let Some(cfg) = state.call_state.take_pending_call_config(&payload.call_sid) {
+                if let Err(e) = CallService::set_metadata(&state.db, session.id, cfg).await {
+                    tracing::warn!("Failed to persist per-call config into call_sessions.metadata: {}", e);
+                }
             }
             
             // Generate TwiML to connect to WebSocket stream.
