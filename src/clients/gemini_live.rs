@@ -87,13 +87,28 @@ impl GeminiLiveClient {
         tokio::spawn(async move {
             let mut read = read;
             let tx = inbound_tx;
+            let mut logged_parse_error = false;
             while let Some(msg) = read.next().await {
                 match msg {
                     Ok(Message::Text(text)) => {
                         // The server uses a union where exactly one of fields is present.
                         // We deserialize into a permissive struct so we can ignore unknown fields.
-                        if let Ok(event) = serde_json::from_str::<ServerMessage>(&text) {
-                            let _ = tx.send(event).await;
+                        match serde_json::from_str::<ServerMessage>(&text) {
+                            Ok(event) => {
+                                let _ = tx.send(event).await;
+                            }
+                            Err(e) => {
+                                // Don't spam logs; first failure is usually enough to diagnose schema mismatch.
+                                if !logged_parse_error {
+                                    logged_parse_error = true;
+                                    let preview: String = text.chars().take(800).collect();
+                                    tracing::warn!(
+                                        error = %e,
+                                        preview = %preview,
+                                        "Gemini Live: failed to parse server message (schema mismatch?)"
+                                    );
+                                }
+                            }
                         }
                     }
                     Ok(Message::Close(_)) => break,

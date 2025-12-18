@@ -257,7 +257,15 @@ async fn handle_gemini_stream(
                             Err(e) => tracing::warn!("Audio transcode error (twilio->gemini): {}", e),
                         }
                     }
-                    Some(msg) = session.recv_event() => {
+                    msg_opt = session.recv_event() => {
+                        let msg = match msg_opt {
+                            Some(m) => m,
+                            None => {
+                                tracing::warn!("Gemini Live websocket closed (no more events)");
+                                break;
+                            }
+                        };
+
                         if msg.setup_complete.is_some() && !setup_complete {
                             setup_complete = true;
                             tracing::info!("Gemini Live setup_complete received");
