@@ -306,6 +306,7 @@ pub enum ClientMessage {
         is_error: bool,
     },
     /// Ping for keepalive
+    #[allow(dead_code)]
     Ping,
 }
 

@@ -15,10 +15,10 @@ mod tools;
 mod types;
 
 pub use server::McpServer;
-pub use tools::{ToolRegistry, ToolContext, execute_tool, read_resource};
+pub use tools::{ToolRegistry, ToolContext, execute_tool};
 pub use types::{
-    JsonRpcRequest, JsonRpcResponse,
-    ToolDefinition, CallToolResult, ToolResultContent,
-    ResourceDefinition, ResourceContent, ListResourcesResult, ReadResourceResult,
+    JsonRpcRequest,
+    ToolDefinition, ToolResultContent,
+    ResourceDefinition,
 };
 

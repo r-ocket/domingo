@@ -143,6 +143,7 @@ pub struct McpSessionContext {
 /// Context lookup by ElevenLabs conversation ID
 #[derive(Debug, Clone)]
 pub struct ElevenLabsConversation {
+    #[allow(dead_code)]
     pub conversation_id: String,
     pub elder_id: Uuid,
     pub session_id: Uuid,

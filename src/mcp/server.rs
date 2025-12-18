@@ -232,6 +232,7 @@ impl McpServer {
     }
 
     /// Parse a JSON-RPC request from raw JSON
+    #[cfg(test)]
     pub fn parse_request(json_str: &str) -> Result<JsonRpcRequest, JsonRpcResponse> {
         serde_json::from_str(json_str).map_err(|e| {
             JsonRpcResponse::error(
