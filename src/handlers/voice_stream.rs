@@ -706,6 +706,12 @@ async fn handle_gemini_stream(
                                     });
                                 }
                                 TwilioStreamMessage::Media { media, .. } => {
+                                    // IMPORTANT: Twilio may send both inbound and outbound tracks.
+                                    // We only ever want to feed/record the caller (inbound) here.
+                                    if media.track != "inbound" {
+                                        continue;
+                                    }
+
                                     // record inbound user audio
                                     if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
                                         let _ = rec_tx.try_send(RecEvt::UserUlaw(ulaw.clone()));
