@@ -1,11 +1,10 @@
-//! call audio recording (twilio media stream) -> stereo wav (user left, assistant right)
+//! call audio recording (twilio media stream) -> compressed-ish wav for storage/playback
 
-use std::path::{Path, PathBuf};
+use std::path::PathBuf;
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
 use tokio::io::{AsyncWriteExt, BufWriter};
 
-use crate::clients::audio;
 
 #[derive(Debug, thiserror::Error)]
 pub enum CallRecordingError {
@@ -22,11 +21,12 @@ pub struct CallRecordingArtifacts {
     pub wav_path: PathBuf,
     pub sample_rate_hz: u32,
     pub channels: u16,
+    pub bits_per_sample: u16,
     pub duration_secs: f32,
     pub size_bytes: u64,
 }
 
-/// streams ulaw bytes to temp files, then builds a stereo wav at the end.
+/// streams ulaw bytes to temp files, then builds a compact wav at the end.
 pub struct CallAudioRecorder {
     call_sid: String,
     user_ulaw_path: PathBuf,
@@ -89,19 +89,24 @@ impl CallAudioRecorder {
         drop(self.user_file);
         drop(self.assistant_file);
 
-        let user_ulaw = tokio::fs::read(&self.user_ulaw_path)
-            .await
-            .map_err(|e| CallRecordingError::Io(e.to_string()))?;
-        let assistant_ulaw = tokio::fs::read(&self.assistant_ulaw_path)
-            .await
-            .map_err(|e| CallRecordingError::Io(e.to_string()))?;
-
-        let user_pcm: Vec<i16> = audio::ulaw_to_pcm16(&user_ulaw);
-        let assistant_pcm: Vec<i16> = audio::ulaw_to_pcm16(&assistant_ulaw);
-
+        // Compress: output mono 8-bit PCM WAV @ 8kHz.
+        // This is ~4x smaller than our previous 16-bit stereo PCM WAV.
+        // (Still browser-playable; and avoids requiring external encoders.)
         let sample_rate_hz: u32 = 8000;
-        let channels: u16 = 2;
-        let max_len = user_pcm.len().max(assistant_pcm.len());
+        let channels: u16 = 1;
+        let bits_per_sample: u16 = 8;
+
+        // We only need file lengths up front to write a correct WAV header.
+        let user_len = tokio::fs::metadata(&self.user_ulaw_path)
+            .await
+            .map_err(|e| CallRecordingError::Io(e.to_string()))?
+            .len() as usize;
+        let assistant_len = tokio::fs::metadata(&self.assistant_ulaw_path)
+            .await
+            .map_err(|e| CallRecordingError::Io(e.to_string()))?
+            .len() as usize;
+        let max_len = user_len.max(assistant_len);
+
         let duration_secs = if max_len == 0 {
             0.0
         } else {
@@ -109,8 +114,14 @@ impl CallAudioRecorder {
         };
 
         let wav_path = std::env::temp_dir().join(format!("domingo-{}.wav", self.call_sid));
-        write_wav_stereo_pcm16(&wav_path, sample_rate_hz, &user_pcm, &assistant_pcm)
-            .await?;
+        write_wav_pcm8_mono_from_ulaw_files(
+            &wav_path,
+            &self.user_ulaw_path,
+            &self.assistant_ulaw_path,
+            sample_rate_hz,
+            max_len,
+        )
+        .await?;
 
         let meta = tokio::fs::metadata(&wav_path)
             .await
@@ -124,64 +135,121 @@ impl CallAudioRecorder {
             wav_path,
             sample_rate_hz,
             channels,
+            bits_per_sample,
             duration_secs,
             size_bytes: meta.len(),
         })
     }
 }
 
-async fn write_wav_stereo_pcm16(
-    path: &Path,
+async fn write_wav_pcm8_mono_from_ulaw_files(
+    wav_path: &std::path::Path,
+    user_ulaw_path: &std::path::Path,
+    assistant_ulaw_path: &std::path::Path,
     sample_rate_hz: u32,
-    left: &[i16],
-    right: &[i16],
+    max_samples: usize,
 ) -> Result<(), CallRecordingError> {
-    let max_len = left.len().max(right.len());
-    let byte_rate = sample_rate_hz * 2 * 2; // sr * channels * bytes_per_sample
-    let block_align: u16 = 4; // channels * bytes_per_sample
-    let bits_per_sample: u16 = 16;
+    let wav_path = wav_path.to_path_buf();
+    let user_path = user_ulaw_path.to_path_buf();
+    let assistant_path = assistant_ulaw_path.to_path_buf();
 
-    // data bytes = frames * block_align
-    let data_bytes: u32 = (max_len as u32)
-        .checked_mul(block_align as u32)
-        .ok_or_else(|| CallRecordingError::Wav("wav too large".to_string()))?;
+    tokio::task::spawn_blocking(move || -> Result<(), CallRecordingError> {
+        use std::fs::File;
+        use std::io::{BufReader, BufWriter as StdBufWriter, Read, Write};
 
-    let riff_size: u32 = 36 + data_bytes;
+        let mut user = BufReader::new(File::open(user_path).map_err(|e| CallRecordingError::Io(e.to_string()))?);
+        let mut asst = BufReader::new(File::open(assistant_path).map_err(|e| CallRecordingError::Io(e.to_string()))?);
+        let mut out = StdBufWriter::new(File::create(wav_path).map_err(|e| CallRecordingError::Io(e.to_string()))?);
 
-    let mut buf = Vec::with_capacity((44 + data_bytes as usize).min(64 * 1024 * 1024));
+        let channels: u16 = 1;
+        let bits_per_sample: u16 = 8;
+        let bytes_per_sample: u16 = 1;
+        let block_align: u16 = channels * bytes_per_sample;
+        let byte_rate: u32 = sample_rate_hz * (block_align as u32);
 
-    // RIFF header
-    buf.extend_from_slice(b"RIFF");
-    buf.extend_from_slice(&riff_size.to_le_bytes());
-    buf.extend_from_slice(b"WAVE");
+        let data_bytes: u32 = (max_samples as u32)
+            .checked_mul(block_align as u32)
+            .ok_or_else(|| CallRecordingError::Wav("wav too large".to_string()))?;
+        let riff_size: u32 = 36 + data_bytes;
 
-    // fmt chunk
-    buf.extend_from_slice(b"fmt ");
-    buf.extend_from_slice(&16u32.to_le_bytes()); // PCM fmt chunk size
-    buf.extend_from_slice(&1u16.to_le_bytes()); // audio format = PCM
-    buf.extend_from_slice(&2u16.to_le_bytes()); // channels
-    buf.extend_from_slice(&sample_rate_hz.to_le_bytes());
-    buf.extend_from_slice(&byte_rate.to_le_bytes());
-    buf.extend_from_slice(&block_align.to_le_bytes());
-    buf.extend_from_slice(&bits_per_sample.to_le_bytes());
+        // header
+        out.write_all(b"RIFF").map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(&riff_size.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(b"WAVE").map_err(|e| CallRecordingError::Io(e.to_string()))?;
 
-    // data chunk
-    buf.extend_from_slice(b"data");
-    buf.extend_from_slice(&data_bytes.to_le_bytes());
+        out.write_all(b"fmt ").map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(&16u32.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?; // fmt chunk size
+        out.write_all(&1u16.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?; // PCM
+        out.write_all(&channels.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(&sample_rate_hz.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(&byte_rate.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(&block_align.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(&bits_per_sample.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?;
 
-    // interleave samples (pad with silence)
-    for i in 0..max_len {
-        let l = left.get(i).copied().unwrap_or(0);
-        let r = right.get(i).copied().unwrap_or(0);
-        buf.extend_from_slice(&l.to_le_bytes());
-        buf.extend_from_slice(&r.to_le_bytes());
-    }
+        out.write_all(b"data").map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        out.write_all(&data_bytes.to_le_bytes()).map_err(|e| CallRecordingError::Io(e.to_string()))?;
 
-    tokio::fs::write(path, &buf)
-        .await
-        .map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        // stream decode+mix
+        let mut remaining = max_samples;
+        let mut buf_u = [0u8; 4096];
+        let mut buf_a = [0u8; 4096];
 
-    Ok(())
+        while remaining > 0 {
+            let want = remaining.min(buf_u.len());
+
+            let mut got_u = 0usize;
+            while got_u < want {
+                let n = user.read(&mut buf_u[got_u..want]).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+                if n == 0 { break; }
+                got_u += n;
+            }
+
+            let mut got_a = 0usize;
+            while got_a < want {
+                let n = asst.read(&mut buf_a[got_a..want]).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+                if n == 0 { break; }
+                got_a += n;
+            }
+
+            let chunk_len = want;
+            for i in 0..chunk_len {
+                let su = if i < got_u { ulaw_decode(buf_u[i]) } else { 0 };
+                let sa = if i < got_a { ulaw_decode(buf_a[i]) } else { 0 };
+                let mixed = ((su as i32) + (sa as i32)) / 2;
+                let mixed = mixed.clamp(-32768, 32767) as i16;
+                let pcm8 = pcm16_to_pcm8_u(mixed);
+                out.write_all(&[pcm8]).map_err(|e| CallRecordingError::Io(e.to_string()))?;
+            }
+
+            remaining -= chunk_len;
+        }
+
+        out.flush().map_err(|e| CallRecordingError::Io(e.to_string()))?;
+        Ok(())
+    })
+    .await
+    .map_err(|e| CallRecordingError::Io(e.to_string()))?
+}
+
+fn pcm16_to_pcm8_u(s: i16) -> u8 {
+    // WAV PCM 8-bit is unsigned.
+    let v = (s as i32) + 32768;
+    ((v >> 8) & 0xFF) as u8
+}
+
+// duplicated µ-law decode (same as src/clients/audio.rs, but that function is private there)
+const ULAW_BIAS: i32 = 0x84;
+fn ulaw_decode(ulaw: u8) -> i16 {
+    let u = (!ulaw) as i32;
+    let sign = u & 0x80;
+    let exponent = (u >> 4) & 0x07;
+    let mantissa = u & 0x0F;
+
+    let mut t = ((mantissa << 3) + ULAW_BIAS) << exponent;
+    t -= ULAW_BIAS;
+
+    let sample = if sign != 0 { -t } else { t };
+    sample as i16
 }
 
 

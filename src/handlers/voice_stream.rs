@@ -245,7 +245,9 @@ async fn handle_gemini_stream(
                 "duration_secs": artifacts.duration_secs,
                 "size_bytes": artifacts.size_bytes,
                 "sample_rate_hz": artifacts.sample_rate_hz,
-                "channels": artifacts.channels
+                "channels": artifacts.channels,
+                "bits_per_sample": artifacts.bits_per_sample,
+                "format": "wav_pcm8_mono"
             }
         });
 
