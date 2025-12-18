@@ -304,6 +304,13 @@ function callCenter() {
         },
 
         connectSSE() {
+            // eventsource already auto-reconnects on transient failures.
+            // if we also create a new EventSource in onerror, we can accidentally create an exponential reconnect storm.
+            if (this.eventSource) {
+                try { this.eventSource.close(); } catch {}
+                this.eventSource = null;
+            }
+
             this.eventSource = new EventSource('/api/admin/calls/live');
             
             this.eventSource.onopen = () => {
@@ -313,8 +320,8 @@ function callCenter() {
 
             this.eventSource.onerror = () => {
                 this.connected = false;
-                console.log('SSE error, reconnecting...');
-                setTimeout(() => this.connectSSE(), 3000);
+                // let EventSource handle retries; keep this handler for UI state only
+                console.log('SSE error');
             };
 
             this.eventSource.onmessage = (event) => {

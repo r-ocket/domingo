@@ -217,7 +217,7 @@ pub async fn calls_sse(
     State(state): State<AppState>,
     _admin: AdminUser,
 ) -> Response {
-    tracing::info!("SSE client connected to global call feed");
+    tracing::debug!("SSE client connected to global call feed");
     
     let rx = state.call_state.subscribe_global();
     let stream = BroadcastStream::new(rx);
