@@ -2,6 +2,7 @@
 
 use std::sync::Arc;
 use std::collections::VecDeque;
+use std::sync::atomic::{AtomicBool, Ordering};
 use axum::{
     extract::{Path, State, WebSocketUpgrade},
     response::IntoResponse,
@@ -13,7 +14,7 @@ use uuid::Uuid;
 use base64::Engine as _;
 
 use crate::clients::{
-    TwilioStreamMessage, TwilioOutboundMedia,
+    TwilioStreamMessage, TwilioOutboundMedia, TwilioOutboundClear,
     RealtimeServerEvent, build_assistant_tools,
     AgentConfig, ServerMessage as ElevenLabsServerMessage,
     build_elevenlabs_tools, ELEVENLABS_SYSTEM_PROMPT,
@@ -173,6 +174,11 @@ async fn handle_gemini_stream(
     let stream_sid = Arc::new(tokio::sync::RwLock::new(String::new()));
     let stream_sid_clone = stream_sid.clone();
 
+    // Barge-in state: when true, we suppress outbound AI audio to Twilio.
+    let suppress_outbound_audio = Arc::new(AtomicBool::new(false));
+    // Whether the assistant is currently speaking (heuristic set by model audio output).
+    let assistant_speaking = Arc::new(AtomicBool::new(false));
+
     // Shared transcript accumulator (optional, only for DB transcript field)
     let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
     let transcript_clone = transcript.clone();
@@ -184,8 +190,13 @@ async fn handle_gemini_stream(
 
     // Outbound audio task: send Twilio outbound media frames
     let stream_sid_for_sender = stream_sid.clone();
+    let suppress_for_sender = suppress_outbound_audio.clone();
     tokio::spawn(async move {
         while let Some(audio_base64) = twilio_rx.recv().await {
+            if suppress_for_sender.load(Ordering::Relaxed) {
+                // barge-in: drop any queued assistant audio
+                continue;
+            }
             let sid = stream_sid_for_sender.read().await.clone();
             if !sid.is_empty() {
                 let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
@@ -203,6 +214,8 @@ async fn handle_gemini_stream(
     let call_sid_for_gemini = call_sid.to_string();
     let tool_ctx_clone = tool_ctx.clone();
     let gemini_overrides = gemini_overrides.clone();
+    let suppress_outbound_audio_clone = suppress_outbound_audio.clone();
+    let assistant_speaking_clone = assistant_speaking.clone();
     tokio::spawn(async move {
         use crate::clients::gemini_live::FunctionResponse;
         use std::collections::HashSet;
@@ -405,6 +418,10 @@ async fn handle_gemini_stream(
                                 || content.interrupted.unwrap_or(false);
 
                             if turn_done {
+                                // model turn ended or got interrupted; allow outbound audio again
+                                assistant_speaking_clone.store(false, Ordering::Relaxed);
+                                suppress_outbound_audio_clone.store(false, Ordering::Relaxed);
+
                                 if let Some(final_text) = maybe_commit_final(
                                     &state_clone.call_state,
                                     &call_sid_for_gemini,
@@ -424,6 +441,10 @@ async fn handle_gemini_stream(
                                     if let Some(inline) = part.inline_data {
                                         // Only handle audio payloads for now.
                                         if inline.mime_type.starts_with("audio/pcm") {
+                                            assistant_speaking_clone.store(true, Ordering::Relaxed);
+                                            if suppress_outbound_audio_clone.load(Ordering::Relaxed) {
+                                                continue;
+                                            }
                                             let pcm24 = match base64::engine::general_purpose::STANDARD.decode(inline.data.as_bytes()) {
                                                 Ok(b) => b,
                                                 Err(_) => continue,
@@ -562,6 +583,15 @@ async fn handle_gemini_stream(
     });
 
     // Twilio websocket loop (same shape as other providers)
+    // local VAD for barge-in: simple energy threshold + hangover
+    let mut user_speaking = false;
+    let mut speech_frames: u32 = 0;
+    let mut silence_frames: u32 = 0;
+    // 20ms frames; require ~60ms speech onset and ~400ms silence to release
+    const SPEECH_FRAMES_TO_TRIGGER: u32 = 3;
+    const SILENCE_FRAMES_TO_RELEASE: u32 = 20;
+    const ENERGY_THRESHOLD: i32 = 900; // heuristic; tweak if too sensitive
+
     loop {
         tokio::select! {
             Some(json) = ws_out_rx.recv() => {
@@ -586,6 +616,47 @@ async fn handle_gemini_stream(
                                     });
                                 }
                                 TwilioStreamMessage::Media { media, .. } => {
+                                    // local barge-in: if user starts speaking while assistant is speaking,
+                                    // clear Twilio's playback buffer and suppress outbound AI audio.
+                                    if assistant_speaking.load(Ordering::Relaxed) {
+                                        if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
+                                            let pcm8 = crate::clients::audio::ulaw_to_pcm16(&ulaw);
+                                            let mut acc: i64 = 0;
+                                            for &s in &pcm8 {
+                                                acc += (s as i32).abs() as i64;
+                                            }
+                                            let avg_abs: i32 = if pcm8.is_empty() { 0 } else { (acc / (pcm8.len() as i64)) as i32 };
+
+                                            if avg_abs >= ENERGY_THRESHOLD {
+                                                speech_frames = speech_frames.saturating_add(1);
+                                                silence_frames = 0;
+                                            } else {
+                                                silence_frames = silence_frames.saturating_add(1);
+                                                speech_frames = 0;
+                                            }
+
+                                            if !user_speaking && speech_frames >= SPEECH_FRAMES_TO_TRIGGER {
+                                                user_speaking = true;
+                                                suppress_outbound_audio.store(true, Ordering::Relaxed);
+
+                                                // clear any already-buffered audio on twilio side
+                                                let sid = stream_sid_clone.read().await.clone();
+                                                if !sid.is_empty() {
+                                                    let clear = TwilioOutboundClear::new(&sid);
+                                                    if let Ok(clear_json) = serde_json::to_string(&clear) {
+                                                        let _ = ws_sender.send(axum::extract::ws::Message::Text(clear_json)).await;
+                                                    }
+                                                }
+                                                // also drop any already-enqueued outbound media json
+                                                while let Ok(_dropped) = ws_out_rx.try_recv() {}
+                                            }
+
+                                            if user_speaking && silence_frames >= SILENCE_FRAMES_TO_RELEASE {
+                                                user_speaking = false;
+                                                suppress_outbound_audio.store(false, Ordering::Relaxed);
+                                            }
+                                        }
+                                    }
                                     let _ = gemini_audio_tx.send(media.payload.clone()).await;
                                 }
                                 TwilioStreamMessage::Stop { .. } => {

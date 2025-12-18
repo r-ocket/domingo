@@ -326,3 +326,20 @@ impl TwilioOutboundMedia {
     }
 }
 
+/// Outbound "clear" message to drop any buffered audio on Twilio's side (barge-in).
+#[derive(Debug, Serialize)]
+pub struct TwilioOutboundClear {
+    pub event: String,
+    #[serde(rename = "streamSid")]
+    pub stream_sid: String,
+}
+
+impl TwilioOutboundClear {
+    pub fn new(stream_sid: &str) -> Self {
+        Self {
+            event: "clear".to_string(),
+            stream_sid: stream_sid.to_string(),
+        }
+    }
+}
+
