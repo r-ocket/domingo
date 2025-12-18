@@ -232,28 +232,24 @@ pub async fn outbound_voice(
                 tracing::error!("Failed to create call session: {}", e);
             }
             
-            // Generate TwiML with greeting then connect to WebSocket stream
+            // Generate TwiML to connect to WebSocket stream.
+            // We intentionally do NOT do a <Say> greeting here because:
+            // - it uses Twilio TTS voice (Polly) instead of the selected voice provider
+            // - it masks failures where the AI never responds / transcribes
             let stream_url = format!(
                 "wss://{}/api/twilio/media-stream/{}",
                 state.config.base_url.replace("http://", "").replace("https://", ""),
                 payload.call_sid
             );
-            
-            // Use the elder's name in the greeting if available
-            let greeting = format!(
-                "Hola {}. Soy Domingo, tu asistente de voz. ¿En qué puedo ayudarte hoy?",
-                elder.name
-            );
-            
+
             let twiml = format!(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
-    <Say voice="Polly.Mia" language="es-MX">{}</Say>
     <Connect>
         <Stream url="{}" />
     </Connect>
 </Response>"#,
-                greeting, stream_url
+                stream_url
             );
             
             (

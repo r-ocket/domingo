@@ -1,6 +1,7 @@
 //! WebSocket handler for Twilio media stream - supports OpenAI Realtime and ElevenLabs
 
 use std::sync::Arc;
+use std::collections::VecDeque;
 use axum::{
     extract::{Path, State, WebSocketUpgrade},
     response::IntoResponse,
@@ -194,6 +195,7 @@ async fn handle_gemini_stream(
         let client = state_clone.gemini.clone();
         let mut resume_handle: Option<String> = None;
         let mut greeted = false;
+        let mut pending_greeting = false;
 
         // Tool declarations come from our MCP registry.
         let tools: Vec<crate::mcp::ToolDefinition> = crate::mcp::ToolRegistry::list_tools();
@@ -214,6 +216,8 @@ async fn handle_gemini_stream(
 
             // Now that we're connected to the model, mark call as active (connected to AI).
             state_clone.call_state.set_active(&call_sid_for_gemini);
+            let mut setup_complete = false;
+            let mut pending_audio_ulaw: VecDeque<String> = VecDeque::with_capacity(200);
 
             // Main loop: multiplex inbound twilio-audio -> gemini, and gemini events -> twilio/transcript.
             loop {
@@ -221,13 +225,28 @@ async fn handle_gemini_stream(
                     Some(audio_b64_ulaw) = gemini_audio_rx.recv() => {
                         // Special control message: greeting trigger (sent by outer twilio start handler)
                         if audio_b64_ulaw == "__GREETING__" {
-                            if !greeted {
-                                greeted = true;
-                                let _ = session.send_client_text_turn("hola", true).await;
-                            }
+                            pending_greeting = true;
                             continue;
                         }
 
+                        // IMPORTANT: per Live API, do not send any messages until setup_complete arrives.
+                        // If we send audio too early, Gemini may ignore it and we'll get silence/no transcripts.
+                        if !setup_complete {
+                            if pending_audio_ulaw.len() >= 200 {
+                                pending_audio_ulaw.pop_front();
+                            }
+                            pending_audio_ulaw.push_back(audio_b64_ulaw);
+                            continue;
+                        }
+
+                        // Flush greeting if requested and not yet greeted.
+                        if pending_greeting && !greeted {
+                            greeted = true;
+                            pending_greeting = false;
+                            let _ = session.send_client_text_turn("hola", true).await;
+                        }
+
+                        // Normal audio path
                         match twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes(&audio_b64_ulaw) {
                             Ok(pcm16_16k) => {
                                 if let Err(e) = session.send_realtime_audio_pcm16_16khz(&pcm16_16k).await {
@@ -235,12 +254,33 @@ async fn handle_gemini_stream(
                                     break;
                                 }
                             }
-                            Err(e) => {
-                                tracing::warn!("Audio transcode error (twilio->gemini): {}", e);
-                            }
+                            Err(e) => tracing::warn!("Audio transcode error (twilio->gemini): {}", e),
                         }
                     }
                     Some(msg) = session.recv_event() => {
+                        if msg.setup_complete.is_some() && !setup_complete {
+                            setup_complete = true;
+                            tracing::info!("Gemini Live setup_complete received");
+
+                            // Flush any buffered audio now that setup is live
+                            while let Some(ulaw_b64) = pending_audio_ulaw.pop_front() {
+                                if let Ok(pcm16_16k) = twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes(&ulaw_b64) {
+                                    let _ = session.send_realtime_audio_pcm16_16khz(&pcm16_16k).await;
+                                }
+                            }
+
+                            // If the stream already started, do greeting now.
+                            if pending_greeting && !greeted {
+                                greeted = true;
+                                pending_greeting = false;
+                                let _ = session.send_client_text_turn("hola", true).await;
+                            }
+                        }
+
+                        if let Some(err) = msg.error.as_ref() {
+                            tracing::error!(error = %err, "Gemini Live server error");
+                        }
+
                         // Resumption handle tracking
                         if let Some(update) = msg.session_resumption_update {
                             if update.resumable.unwrap_or(false) {
@@ -260,6 +300,7 @@ async fn handle_gemini_stream(
                         if let Some(content) = msg.server_content {
                             // Input transcription (user)
                             if let Some(t) = content.input_transcription {
+                                tracing::debug!(text = %t.text, "Gemini input transcription");
                                 state_clone.call_state.add_transcript(
                                     &call_sid_for_gemini,
                                     Speaker::User,
@@ -269,6 +310,7 @@ async fn handle_gemini_stream(
                             }
                             // Output transcription (assistant)
                             if let Some(t) = content.output_transcription {
+                                tracing::debug!(text = %t.text, "Gemini output transcription");
                                 {
                                     let mut acc = transcript_clone.lock().await;
                                     acc.push_str(&t.text);
