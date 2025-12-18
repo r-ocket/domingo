@@ -3,6 +3,7 @@
 use std::sync::Arc;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::atomic::AtomicU64;
 use axum::{
     extract::{Path, State, WebSocketUpgrade},
     response::IntoResponse,
@@ -180,6 +181,8 @@ async fn handle_gemini_stream(
     let suppress_outbound_audio = Arc::new(AtomicBool::new(false));
     // Whether the assistant is currently speaking (heuristic set by model audio output).
     let assistant_speaking = Arc::new(AtomicBool::new(false));
+    // Millis since UNIX epoch when we last actually sent assistant audio to Twilio.
+    let last_assistant_audio_sent_ms = Arc::new(AtomicU64::new(0));
 
     // Shared transcript accumulator (optional, only for DB transcript field)
     let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
@@ -280,6 +283,7 @@ async fn handle_gemini_stream(
     // Outbound audio task: send Twilio outbound media frames
     let stream_sid_for_sender = stream_sid.clone();
     let suppress_for_sender = suppress_outbound_audio.clone();
+    let last_sent_for_sender = last_assistant_audio_sent_ms.clone();
     let rec_tx_for_sender = rec_tx.clone();
     tokio::spawn(async move {
         while let Some(audio_base64) = twilio_rx.recv().await {
@@ -291,6 +295,12 @@ async fn handle_gemini_stream(
             if !sid.is_empty() {
                 // record only what we actually send (so barge-in suppressed audio doesn't appear in playback)
                 let _ = rec_tx_for_sender.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
+                // barge-in hangover: mark "assistant speaking recently" when we actually send audio
+                let now_ms = std::time::SystemTime::now()
+                    .duration_since(std::time::UNIX_EPOCH)
+                    .map(|d| d.as_millis() as u64)
+                    .unwrap_or(0);
+                last_sent_for_sender.store(now_ms, Ordering::Relaxed);
 
                 let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
                 if let Ok(json) = serde_json::to_string(&msg) {
@@ -710,9 +720,10 @@ async fn handle_gemini_stream(
     let mut speech_frames: u32 = 0;
     let mut silence_frames: u32 = 0;
     // 20ms frames; require ~60ms speech onset and ~400ms silence to release
-    const SPEECH_FRAMES_TO_TRIGGER: u32 = 3;
+    const SPEECH_FRAMES_TO_TRIGGER: u32 = 2;
     const SILENCE_FRAMES_TO_RELEASE: u32 = 20;
-    const ENERGY_THRESHOLD: i32 = 900; // heuristic; tweak if too sensitive
+    const ENERGY_THRESHOLD: i32 = 650; // heuristic; tweak if too sensitive
+    const ASSISTANT_SPEAKING_HANGOVER_MS: u64 = 1200;
 
     loop {
         tokio::select! {
@@ -751,7 +762,15 @@ async fn handle_gemini_stream(
                                     let _ = rec_tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
 
                                     // 3) local barge-in (decode only when assistant is speaking)
-                                    if assistant_speaking.load(Ordering::Relaxed) {
+                                    let now_ms = std::time::SystemTime::now()
+                                        .duration_since(std::time::UNIX_EPOCH)
+                                        .map(|d| d.as_millis() as u64)
+                                        .unwrap_or(0);
+                                    let last_ms = last_assistant_audio_sent_ms.load(Ordering::Relaxed);
+                                    let assistant_recent = last_ms > 0 && now_ms.saturating_sub(last_ms) <= ASSISTANT_SPEAKING_HANGOVER_MS;
+                                    let assistant_active = assistant_speaking.load(Ordering::Relaxed) || assistant_recent;
+
+                                    if assistant_active {
                                         if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
                                             let pcm8 = crate::clients::audio::ulaw_to_pcm16(&ulaw);
                                             let mut acc: i64 = 0;
@@ -771,6 +790,8 @@ async fn handle_gemini_stream(
                                             if !user_speaking && speech_frames >= SPEECH_FRAMES_TO_TRIGGER {
                                                 user_speaking = true;
                                                 suppress_outbound_audio.store(true, Ordering::Relaxed);
+                                                // assume we have successfully barged in; treat assistant as no longer speaking
+                                                assistant_speaking.store(false, Ordering::Relaxed);
 
                                                 // clear any already-buffered audio on twilio side
                                                 let sid = stream_sid_clone.read().await.clone();
