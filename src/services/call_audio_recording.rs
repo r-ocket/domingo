@@ -3,7 +3,7 @@
 use std::path::{Path, PathBuf};
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
-use tokio::io::AsyncWriteExt;
+use tokio::io::{AsyncWriteExt, BufWriter};
 
 use crate::clients::audio;
 
@@ -31,8 +31,8 @@ pub struct CallAudioRecorder {
     call_sid: String,
     user_ulaw_path: PathBuf,
     assistant_ulaw_path: PathBuf,
-    user_file: tokio::fs::File,
-    assistant_file: tokio::fs::File,
+    user_file: BufWriter<tokio::fs::File>,
+    assistant_file: BufWriter<tokio::fs::File>,
 }
 
 impl CallAudioRecorder {
@@ -52,8 +52,8 @@ impl CallAudioRecorder {
             call_sid: call_sid.to_string(),
             user_ulaw_path,
             assistant_ulaw_path,
-            user_file,
-            assistant_file,
+            user_file: BufWriter::new(user_file),
+            assistant_file: BufWriter::new(assistant_file),
         })
     }
 

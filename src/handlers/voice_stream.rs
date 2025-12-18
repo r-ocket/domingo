@@ -187,7 +187,7 @@ async fn handle_gemini_stream(
     // Call recording worker: records both tracks while the call is running, then uploads to S3 after call end.
     #[derive(Debug)]
     enum RecEvt {
-        UserUlaw(Vec<u8>),
+        UserUlawB64(String),
         AssistantUlawB64(String),
         End,
     }
@@ -209,8 +209,8 @@ async fn handle_gemini_stream(
 
         while let Some(evt) = rec_rx.recv().await {
             match evt {
-                RecEvt::UserUlaw(ulaw) => {
-                    let _ = recorder.write_user_ulaw_bytes(&ulaw).await;
+                RecEvt::UserUlawB64(b64) => {
+                    let _ = recorder.write_user_ulaw_b64(&b64).await;
                 }
                 RecEvt::AssistantUlawB64(b64) => {
                     let _ = recorder.write_assistant_ulaw_b64(&b64).await;
@@ -712,13 +712,15 @@ async fn handle_gemini_stream(
                                         continue;
                                     }
 
-                                    // record inbound user audio
-                                    if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
-                                        let _ = rec_tx.try_send(RecEvt::UserUlaw(ulaw.clone()));
+                                    // 1) feed gemini first (keep hot path minimal)
+                                    let _ = gemini_audio_tx.send(media.payload.clone()).await;
 
-                                        // local barge-in: if user starts speaking while assistant is speaking,
-                                        // clear Twilio's playback buffer and suppress outbound AI audio.
-                                        if assistant_speaking.load(Ordering::Relaxed) {
+                                    // 2) enqueue recording without decoding (secondary path)
+                                    let _ = rec_tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
+
+                                    // 3) local barge-in (decode only when assistant is speaking)
+                                    if assistant_speaking.load(Ordering::Relaxed) {
+                                        if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
                                             let pcm8 = crate::clients::audio::ulaw_to_pcm16(&ulaw);
                                             let mut acc: i64 = 0;
                                             for &s in &pcm8 {
@@ -756,8 +758,6 @@ async fn handle_gemini_stream(
                                             }
                                         }
                                     }
-
-                                    let _ = gemini_audio_tx.send(media.payload.clone()).await;
                                 }
                                 TwilioStreamMessage::Stop { .. } => {
                                     tracing::info!("Stream stopped");
