@@ -153,8 +153,22 @@ impl GeminiLiveClient {
                             }
                         }
                     }
-                    Ok(Message::Close(_)) => break,
-                    Err(_) => break,
+                    Ok(Message::Close(frame_opt)) => {
+                        if let Some(frame) = frame_opt {
+                            tracing::warn!(
+                                code = %frame.code,
+                                reason = %frame.reason,
+                                "Gemini Live: websocket closed by server"
+                            );
+                        } else {
+                            tracing::warn!("Gemini Live: websocket closed by server");
+                        }
+                        break;
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "Gemini Live: websocket read error (reader exiting)");
+                        break;
+                    }
                     _ => {}
                 }
             }

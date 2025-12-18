@@ -80,6 +80,7 @@
                                         <div class="form-group">
                                             <label class="form-label text-xs">reasoningEffort</label>
                                             <select x-model="callForm.gemini.generationConfig.reasoningEffort" class="form-select">
+                                                <option value="">(default)</option>
                                                 <option value="low">low</option>
                                                 <option value="medium">medium</option>
                                                 <option value="high">high</option>
@@ -90,7 +91,7 @@
                                         </div>
                                         <div class="form-group">
                                             <label class="form-label text-xs">thinkingBudget</label>
-                                            <input type="number" step="1" min="0" x-model.number="callForm.gemini.generationConfig.thinkingBudget" class="form-input" />
+                                            <input type="number" step="1" min="0" x-model.number="callForm.gemini.generationConfig.thinkingBudget" class="form-input" placeholder="(default)" />
                                             <p class="form-hint text-xs mt-1 text-stone-500">
                                                 set 0 to disable/leave default.
                                             </p>
@@ -362,9 +363,6 @@ function callCenter() {
                 generationConfig: {
                     temperature: 0.7,
                     maxOutputTokens: 1024,
-                    // best-effort: these keys may evolve; advanced users can override via JSON below
-                    reasoningEffort: "medium",
-                    thinkingBudget: 0
                 },
                 realtimeInputConfig: {
                     automaticActivityDetection: {
@@ -376,7 +374,7 @@ function callCenter() {
                     }
                 },
                 transcriptionConfig: {
-                    languageCode: "es-US"
+                    languageCode: ""
                 },
                 advancedGenerationConfigJson: "",
                 advancedRealtimeInputConfigJson: "",
@@ -612,7 +610,23 @@ function callCenter() {
                 if (advTr) payload.gemini.transcriptionConfig = deepMerge(payload.gemini.transcriptionConfig || {}, advTr);
 
                 // tidy: avoid sending empty/placeholder keys
-                if (payload.gemini?.generationConfig?.thinkingBudget === 0) delete payload.gemini.generationConfig.thinkingBudget;
+                if (payload.gemini?.generationConfig) {
+                    const tb = payload.gemini.generationConfig.thinkingBudget;
+                    if (tb === 0 || tb === null || tb === undefined || Number.isNaN(tb)) {
+                        delete payload.gemini.generationConfig.thinkingBudget;
+                    }
+                    const re = payload.gemini.generationConfig.reasoningEffort;
+                    if (!re) {
+                        delete payload.gemini.generationConfig.reasoningEffort;
+                    }
+                }
+
+                if (payload.gemini?.transcriptionConfig) {
+                    const lc = (payload.gemini.transcriptionConfig.languageCode || '').trim();
+                    if (!lc) {
+                        delete payload.gemini.transcriptionConfig;
+                    }
+                }
 
                 // strip UI-only fields
                 if (payload.gemini) {
