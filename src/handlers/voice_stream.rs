@@ -12,6 +12,7 @@ use serde_json::json;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 use base64::Engine as _;
+use chrono::{Datelike, FixedOffset, Utc, Weekday};
 
 use crate::clients::{
     TwilioStreamMessage, TwilioOutboundMedia, TwilioOutboundClear,
@@ -1273,6 +1274,12 @@ async fn handle_elevenlabs_stream(
 /// Build a dynamic system prompt that includes the elder's specific context
 async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
     let mut context_parts = vec![];
+
+    // Date context (Mexico City timezone, Spanish long-form)
+    context_parts.push(format!(
+        "## Fecha\nLA FECHA DEL DIA DE HOY: {}",
+        today_spanish_mexico_city()
+    ));
     
     // Add elder's name for personalization
     context_parts.push(format!(
@@ -1391,4 +1398,38 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
     }
     
     context_parts.join("\n\n")
+}
+
+fn today_spanish_mexico_city() -> String {
+    // Mexico City is UTC-6 year-round (DST removed for most of Mexico).
+    let mx = FixedOffset::west_opt(6 * 3600).unwrap();
+    let now = Utc::now().with_timezone(&mx);
+
+    let weekday = match now.weekday() {
+        Weekday::Mon => "lunes",
+        Weekday::Tue => "martes",
+        Weekday::Wed => "miércoles",
+        Weekday::Thu => "jueves",
+        Weekday::Fri => "viernes",
+        Weekday::Sat => "sábado",
+        Weekday::Sun => "domingo",
+    };
+
+    let month = match now.month() {
+        1 => "enero",
+        2 => "febrero",
+        3 => "marzo",
+        4 => "abril",
+        5 => "mayo",
+        6 => "junio",
+        7 => "julio",
+        8 => "agosto",
+        9 => "septiembre",
+        10 => "octubre",
+        11 => "noviembre",
+        12 => "diciembre",
+        _ => "???",
+    };
+
+    format!("{weekday} {} de {month} de {}", now.day(), now.year())
 }
