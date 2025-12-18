@@ -469,18 +469,88 @@ pub struct OpenAIApiError {
 pub fn build_assistant_tools() -> Vec<ToolDefinition> {
     vec![
         ToolDefinition::function(
-            "request_ride",
-            "Solicitar un viaje en Uber. Usa los nombres de ubicaciones que están en el contexto.",
+            "search_contacts",
+            "Buscar contactos guardados por nombre. Devuelve candidatos con IDs. Después usa call_contact_by_id.",
             json!({
                 "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Nombre parcial del contacto (por ejemplo: 'Alejandro')"
+                    }
+                },
+                "required": ["query"]
+            }),
+        ),
+        ToolDefinition::function(
+            "call_contact_by_id",
+            "Transferir la llamada a un contacto guardado usando contact_id. NUNCA inventes números: el sistema marca el teléfono guardado.",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "contact_id": {
+                        "type": "string",
+                        "description": "UUID del contacto (de search_contacts)"
+                    }
+                },
+                "required": ["contact_id"]
+            }),
+        ),
+        ToolDefinition::function(
+            "search_locations",
+            "Buscar ubicaciones guardadas por nombre o dirección. Devuelve candidatos con IDs. Después usa request_ride_by_location_id.",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "query": {
+                        "type": "string",
+                        "description": "Nombre o parte de la dirección"
+                    },
+                    "include_home": {
+                        "type": "boolean",
+                        "description": "Si true, también incluye CASA",
+                        "default": false
+                    }
+                },
+                "required": ["query"]
+            }),
+        ),
+        ToolDefinition::function(
+            "request_ride_by_location_id",
+            "Solicitar un viaje en Uber usando IDs de ubicaciones guardadas (evita errores de coincidencia).",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
+                "properties": {
+                    "to_location_id": {
+                        "type": "string",
+                        "description": "UUID del destino (de search_locations)"
+                    },
+                    "from_location_id": {
+                        "type": "string",
+                        "description": "UUID opcional del punto de recogida (de search_locations). Si no se pasa, se usa CASA."
+                    }
+                },
+                "required": ["to_location_id"]
+            }),
+        ),
+        ToolDefinition::function(
+            "request_ride",
+            "Solicitar un viaje en Uber. Preferido: usa request_ride_by_location_id. Si usas este tool, pasa el nombre/dirección guardada; si hay ambigüedad, NO se pedirá el Uber.",
+            json!({
+                "type": "object",
+                "additionalProperties": false,
                 "properties": {
                     "to_location": {
                         "type": "string",
-                        "description": "El nombre del destino (debe ser una ubicación guardada del contexto)"
+                        "description": "Destino: nombre o dirección guardada"
                     },
                     "from_location": {
                         "type": "string",
-                        "description": "Opcional: punto de recogida. Si no se especifica, se usa la casa."
+                        "description": "Opcional: punto de recogida (nombre o dirección guardada). Si no se especifica, se usa la casa."
                     }
                 },
                 "required": ["to_location"]
@@ -488,9 +558,10 @@ pub fn build_assistant_tools() -> Vec<ToolDefinition> {
         ),
         ToolDefinition::function(
             "call_contact",
-            "Transferir la llamada a un contacto. Usa el nombre exacto del contacto que aparece en el contexto.",
+            "Transferir la llamada a un contacto. Preferido: usa search_contacts -> call_contact_by_id. Este tool NO transferirá si el nombre no es una coincidencia única.",
             json!({
                 "type": "object",
+                "additionalProperties": false,
                 "properties": {
                     "contact_name": {
                         "type": "string",
@@ -528,9 +599,21 @@ Al iniciar la llamada, saluda de forma cálida y personal usando el nombre del u
 3. **Llamadas**: Transferir la llamada a contactos guardados
 
 ## REGLAS DE HERRAMIENTAS (MUY IMPORTANTE)
-Solo tienes DOS herramientas:
-- **request_ride**: Para pedir un Uber. Usa los nombres EXACTOS de los destinos del contexto.
-- **call_contact**: Para transferir la llamada. Usa el nombre EXACTO del contacto del contexto.
+Usa herramientas cuando sea necesario y sigue el patrón **COMPOSICIONAL** (en 2 pasos) cuando aplique:
+
+- **CONTACTOS (COMPOSICIONAL)**:
+  - Paso 1: **search_contacts** con un nombre parcial para obtener candidatos con **IDs**
+  - Paso 2: **call_contact_by_id** con el **contact_id** elegido
+  - NUNCA inventes números. NUNCA transfieras si hay ambigüedad.
+
+- **UBER / VIAJES (COMPOSICIONAL)**:
+  - Paso 1: **search_locations** con nombre o dirección para obtener candidatos con **IDs**
+  - Paso 2: **request_ride_by_location_id** con **to_location_id** (y opcionalmente **from_location_id**)
+  - Si hay ambigüedad, pregunta al usuario cuál de los candidatos quiere.
+
+Herramientas legacy (úsalas solo si es necesario):
+- **request_ride**: wrapper; puede fallar con ambigüedad.
+- **call_contact**: wrapper; puede fallar con ambigüedad.
 
 ## REGLAS DE INFORMACIÓN (MUY IMPORTANTE)
 - Para MEDICAMENTOS: Toda la información está en el contexto abajo. NUNCA inventes medicamentos, dosis u horarios. Si preguntan sobre un medicamento que no está en el contexto, di "No tengo ese medicamento registrado".
@@ -546,13 +629,14 @@ Solo tienes DOS herramientas:
 1. Confirma el destino con el usuario
 2. Si no especifica de dónde sale, asume que es de casa
 3. Avisa: "Voy a pedir su Uber a [destino]..."
-4. Usa la herramienta request_ride
+4. Si no tienes un ID único del destino: usa search_locations y confirma cuál candidato es
+5. Usa request_ride_by_location_id (preferido)
 
 ## Flujo para Transferir Llamada
 1. Confirma con quién quiere hablar
-2. Busca el nombre exacto en la lista de contactos del contexto
+2. Si no tienes un ID único del contacto: usa search_contacts y confirma cuál candidato es
 3. Avisa: "Lo comunico con [nombre], un momento..."
-4. Usa la herramienta call_contact con el nombre EXACTO
+4. Usa call_contact_by_id (preferido)
 
 ## Flujo para Medicamentos
 1. Consulta la información que está en el contexto

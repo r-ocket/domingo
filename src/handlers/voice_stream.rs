@@ -625,23 +625,13 @@ async fn handle_gemini_stream(
 
                                     let scheduling = match tool_name.as_str() {
                                         // transfers should interrupt the assistant immediately
-                                        "call_contact" => "INTERRUPT",
+                                        "call_contact" | "call_contact_by_id" => "INTERRUPT",
                                         // ride booking is usually ok to interrupt too (it changes the conversation state)
-                                        "request_ride" => "INTERRUPT",
+                                        "request_ride" | "request_ride_by_location_id" => "INTERRUPT",
                                         _ => "WHEN_IDLE",
                                     };
 
                                     let result_str = serde_json::to_string(&result_json).unwrap_or_default();
-
-                                    // include optional scheduling hint per Live API tool docs
-                                    // https://ai.google.dev/gemini-api/docs/live-tools
-                                    let response_with_scheduling = match result_json.clone() {
-                                        serde_json::Value::Object(mut obj) => {
-                                            obj.insert("scheduling".to_string(), json!(scheduling));
-                                            serde_json::Value::Object(obj)
-                                        }
-                                        other => json!({ "result": other, "scheduling": scheduling }),
-                                    };
 
                                     state_clone.call_state.complete_tool_call_with_meta(
                                         &call_sid_for_gemini,
@@ -653,7 +643,8 @@ async fn handle_gemini_stream(
                                     function_responses.push(FunctionResponse {
                                         id: call_id,
                                         name: tool_name,
-                                        response: response_with_scheduling,
+                                        scheduling: Some(scheduling.to_string()),
+                                        response: result_json,
                                     });
                                 }
 

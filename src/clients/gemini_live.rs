@@ -457,6 +457,9 @@ pub struct ToolResponse {
 pub struct FunctionResponse {
     pub id: String,
     pub name: String,
+    /// Live tool-response scheduling hint (e.g. "INTERRUPT", "WHEN_IDLE", "SILENT")
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub scheduling: Option<String>,
     pub response: serde_json::Value,
 }
 
