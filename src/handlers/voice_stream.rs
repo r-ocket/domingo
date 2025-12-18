@@ -11,6 +11,7 @@ use axum::{
 use futures_util::{SinkExt, StreamExt};
 use serde_json::json;
 use tokio::sync::mpsc;
+use tokio::sync::watch;
 use uuid::Uuid;
 use base64::Engine as _;
 use chrono::{Datelike, FixedOffset, Utc, Weekday};
@@ -280,12 +281,15 @@ async fn handle_gemini_stream(
     let (gemini_audio_tx, mut gemini_audio_rx) = mpsc::channel::<String>(200);
     let (ws_out_tx, mut ws_out_rx) = mpsc::channel::<String>(200);
 
+    // Shutdown signal: flips true when the Twilio stream stops/closes so background tasks halt.
+    let (shutdown_tx, shutdown_rx) = watch::channel::<bool>(false);
+
     // Outbound audio task: send Twilio outbound media frames
     let stream_sid_for_sender = stream_sid.clone();
     let suppress_for_sender = suppress_outbound_audio.clone();
     let last_sent_for_sender = last_assistant_audio_sent_ms.clone();
     let rec_tx_for_sender = rec_tx.clone();
-    tokio::spawn(async move {
+    let outbound_audio_handle = tokio::spawn(async move {
         while let Some(audio_base64) = twilio_rx.recv().await {
             if suppress_for_sender.load(Ordering::Relaxed) {
                 // barge-in: drop any queued assistant audio
@@ -319,13 +323,15 @@ async fn handle_gemini_stream(
     let gemini_overrides = gemini_overrides.clone();
     let suppress_outbound_audio_clone = suppress_outbound_audio.clone();
     let assistant_speaking_clone = assistant_speaking.clone();
-    tokio::spawn(async move {
+    let mut shutdown_rx_gemini = shutdown_rx.clone();
+    let gemini_handle = tokio::spawn(async move {
         use crate::clients::gemini_live::FunctionResponse;
         use std::collections::HashSet;
 
         let client = state_clone.gemini.clone();
         let mut resume_handle: Option<String> = None;
         let mut reconnect_attempts_without_handle: u32 = 0;
+        let mut reconnect_attempts_with_handle_no_setup: u32 = 0;
         let mut greeted = false;
         let mut pending_greeting = false;
         let mut current_user_text = String::new();
@@ -377,10 +383,25 @@ async fn handle_gemini_stream(
             Some(final_text)
         }
 
-        loop {
-            let connect_result = client
-                .connect_live(dynamic_prompt.clone(), tools.clone(), resume_handle.clone(), gemini_overrides.clone())
-                .await;
+        'outer: loop {
+            if *shutdown_rx_gemini.borrow() {
+                break 'outer;
+            }
+
+            let used_resume_handle = resume_handle.is_some();
+            let connect_fut = client.connect_live(
+                dynamic_prompt.clone(),
+                tools.clone(),
+                resume_handle.clone(),
+                gemini_overrides.clone(),
+            );
+
+            let connect_result = tokio::select! {
+                _ = shutdown_rx_gemini.changed() => {
+                    break 'outer;
+                }
+                res = connect_fut => res,
+            };
 
             let mut session = match connect_result {
                 Ok(s) => s,
@@ -401,6 +422,13 @@ async fn handle_gemini_stream(
             tokio::pin!(setup_deadline);
             loop {
                 tokio::select! {
+                    _ = shutdown_rx_gemini.changed() => {
+                        if *shutdown_rx_gemini.borrow() {
+                            // best-effort: tell gemini the audio stream ended, then exit.
+                            let _ = session.send_audio_stream_end().await;
+                            break;
+                        }
+                    }
                     _ = &mut setup_deadline, if !setup_complete => {
                         tracing::error!("Gemini Live setup_complete timeout (no server response)");
                         break;
@@ -672,6 +700,29 @@ async fn handle_gemini_stream(
                 }
             }
 
+            if *shutdown_rx_gemini.borrow() {
+                break 'outer;
+            }
+
+            // If we were trying to resume and the server dropped us before setup_complete, assume
+            // the handle is invalid/expired (often manifests as code=1008 "session not found").
+            if used_resume_handle && !setup_complete {
+                reconnect_attempts_with_handle_no_setup = reconnect_attempts_with_handle_no_setup.saturating_add(1);
+                tracing::warn!(
+                    attempt = reconnect_attempts_with_handle_no_setup,
+                    "Gemini Live ended before setup_complete while resuming; treating resumption handle as suspect"
+                );
+
+                if reconnect_attempts_with_handle_no_setup >= 2 {
+                    tracing::warn!("Clearing Gemini resumption handle to avoid infinite resume loop");
+                    resume_handle = None;
+                    reconnect_attempts_without_handle = 0;
+                    reconnect_attempts_with_handle_no_setup = 0;
+                }
+            } else if setup_complete {
+                reconnect_attempts_with_handle_no_setup = 0;
+            }
+
             // If we don't have a resumable handle, don't spin forever.
             if resume_handle.is_none() {
                 reconnect_attempts_without_handle = reconnect_attempts_without_handle.saturating_add(1);
@@ -683,12 +734,14 @@ async fn handle_gemini_stream(
                     attempt = reconnect_attempts_without_handle,
                     "Gemini Live session ended before resumption handle; retrying connect"
                 );
-                tokio::time::sleep(tokio::time::Duration::from_millis(250)).await;
+                let backoff_ms = 250u64.saturating_mul(1u64 << (reconnect_attempts_without_handle.saturating_sub(1)));
+                tokio::time::sleep(tokio::time::Duration::from_millis(std::cmp::min(backoff_ms, 2000))).await;
                 continue;
             }
 
             // Otherwise loop to reconnect.
             tracing::info!("Reconnecting Gemini Live session (session resumption)...");
+            tokio::time::sleep(tokio::time::Duration::from_millis(150)).await;
         }
 
         // End session in DB with transcript if any
@@ -710,6 +763,9 @@ async fn handle_gemini_stream(
     let mut user_speaking = false;
     let mut speech_frames: u32 = 0;
     let mut silence_frames: u32 = 0;
+    let mut twilio_media_frames: u64 = 0;
+    let mut twilio_media_dropped_outbound: u64 = 0;
+    let mut logged_twilio_parse_error = false;
     // 20ms frames; require ~60ms speech onset and ~400ms silence to release
     const SPEECH_FRAMES_TO_TRIGGER: u32 = 2;
     const SILENCE_FRAMES_TO_RELEASE: u32 = 20;
@@ -726,104 +782,169 @@ async fn handle_gemini_stream(
             msg = ws_receiver.next() => {
                 match msg {
                     Some(Ok(axum::extract::ws::Message::Text(text))) => {
-                        if let Ok(twilio_msg) = serde_json::from_str::<TwilioStreamMessage>(&text) {
-                            match twilio_msg {
-                                TwilioStreamMessage::Start { stream_sid: sid, start } => {
-                                    *stream_sid_clone.write().await = sid;
-                                    tracing::info!("Stream started for call {}", start.call_sid);
+                        match serde_json::from_str::<TwilioStreamMessage>(&text) {
+                            Ok(twilio_msg) => {
+                                match twilio_msg {
+                                    TwilioStreamMessage::Start { stream_sid: sid, start } => {
+                                        *stream_sid_clone.write().await = sid;
+                                        tracing::info!(
+                                            call_sid = %start.call_sid,
+                                            tracks = ?start.tracks,
+                                            encoding = %start.media_format.encoding,
+                                            sample_rate = start.media_format.sample_rate,
+                                            channels = start.media_format.channels,
+                                            "Stream started"
+                                        );
 
-                                    // send a greeting trigger to gemini after a short delay
-                                    let greeting_tx = gemini_audio_tx.clone();
-                                    tokio::spawn(async move {
-                                        tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
-                                        let _ = greeting_tx.send("__GREETING__".to_string()).await;
-                                    });
-                                }
-                                TwilioStreamMessage::Media { media, .. } => {
-                                    // IMPORTANT: Twilio may send both inbound and outbound tracks.
-                                    // We only ever want to feed/record the caller (inbound) here.
-                                    if media.track != "inbound" {
-                                        continue;
+                                        // send a greeting trigger to gemini after a short delay
+                                        let greeting_tx = gemini_audio_tx.clone();
+                                        tokio::spawn(async move {
+                                            tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+                                            let _ = greeting_tx.send("__GREETING__".to_string()).await;
+                                        });
                                     }
 
-                                    // 1) feed gemini first (keep hot path minimal)
-                                    let _ = gemini_audio_tx.send(media.payload.clone()).await;
-
-                                    // 2) enqueue recording without decoding (secondary path)
-                                    let _ = rec_tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
-
-                                    // 3) local barge-in (decode only when assistant is speaking)
-                                    let now_ms = std::time::SystemTime::now()
-                                        .duration_since(std::time::UNIX_EPOCH)
-                                        .map(|d| d.as_millis() as u64)
-                                        .unwrap_or(0);
-                                    let last_ms = last_assistant_audio_sent_ms.load(Ordering::Relaxed);
-                                    let assistant_recent = last_ms > 0 && now_ms.saturating_sub(last_ms) <= ASSISTANT_SPEAKING_HANGOVER_MS;
-                                    let assistant_active = assistant_speaking.load(Ordering::Relaxed) || assistant_recent;
-
-                                    if assistant_active {
-                                        if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
-                                            let pcm8 = crate::clients::audio::ulaw_to_pcm16(&ulaw);
-                                            let mut acc: i64 = 0;
-                                            for &s in &pcm8 {
-                                                acc += (s as i32).abs() as i64;
+                                    TwilioStreamMessage::Media { media, .. } => {
+                                        // IMPORTANT: Twilio may send both inbound and outbound tracks.
+                                        // Track may be omitted for single-track streams; treat missing/empty as inbound.
+                                        match media.track.as_deref() {
+                                            Some("outbound") => {
+                                                twilio_media_dropped_outbound = twilio_media_dropped_outbound.saturating_add(1);
+                                                continue;
                                             }
-                                            let avg_abs: i32 = if pcm8.is_empty() { 0 } else { (acc / (pcm8.len() as i64)) as i32 };
-
-                                            if avg_abs >= ENERGY_THRESHOLD {
-                                                speech_frames = speech_frames.saturating_add(1);
-                                                silence_frames = 0;
-                                            } else {
-                                                silence_frames = silence_frames.saturating_add(1);
-                                                speech_frames = 0;
+                                            Some("inbound") | None | Some("") => {}
+                                            Some(other) => {
+                                                tracing::debug!(track = %other, "twilio media: unknown track; treating as inbound");
                                             }
+                                        }
 
-                                            if !user_speaking && speech_frames >= SPEECH_FRAMES_TO_TRIGGER {
-                                                user_speaking = true;
-                                                suppress_outbound_audio.store(true, Ordering::Relaxed);
-                                                // assume we have successfully barged in; treat assistant as no longer speaking
-                                                assistant_speaking.store(false, Ordering::Relaxed);
+                                        twilio_media_frames = twilio_media_frames.saturating_add(1);
+                                        if twilio_media_frames % 80 == 0 {
+                                            tracing::debug!(
+                                                frames = twilio_media_frames,
+                                                dropped_outbound = twilio_media_dropped_outbound,
+                                                payload_b64_len = media.payload.len(),
+                                                "twilio media frames flowing"
+                                            );
+                                        }
 
-                                                // clear any already-buffered audio on twilio side
-                                                let sid = stream_sid_clone.read().await.clone();
-                                                if !sid.is_empty() {
-                                                    let clear = TwilioOutboundClear::new(&sid);
-                                                    if let Ok(clear_json) = serde_json::to_string(&clear) {
-                                                        let _ = ws_sender.send(axum::extract::ws::Message::Text(clear_json)).await;
-                                                    }
+                                        // 1) feed gemini first (keep hot path minimal)
+                                        if gemini_audio_tx.send(media.payload.clone()).await.is_err() {
+                                            tracing::warn!("gemini audio channel closed; ending twilio stream loop");
+                                            let _ = shutdown_tx.send(true);
+                                            let _ = rec_tx.try_send(RecEvt::End);
+                                            break;
+                                        }
+
+                                        // 2) enqueue recording without decoding (secondary path)
+                                        let _ = rec_tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
+
+                                        // 3) local barge-in (decode only when assistant is speaking)
+                                        let now_ms = std::time::SystemTime::now()
+                                            .duration_since(std::time::UNIX_EPOCH)
+                                            .map(|d| d.as_millis() as u64)
+                                            .unwrap_or(0);
+                                        let last_ms = last_assistant_audio_sent_ms.load(Ordering::Relaxed);
+                                        let assistant_recent = last_ms > 0 && now_ms.saturating_sub(last_ms) <= ASSISTANT_SPEAKING_HANGOVER_MS;
+                                        let assistant_active = assistant_speaking.load(Ordering::Relaxed) || assistant_recent;
+
+                                        if assistant_active {
+                                            if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
+                                                let pcm8 = crate::clients::audio::ulaw_to_pcm16(&ulaw);
+                                                let mut acc: i64 = 0;
+                                                for &s in &pcm8 {
+                                                    acc += (s as i32).abs() as i64;
                                                 }
-                                                // also drop any already-enqueued outbound media json
-                                                while let Ok(_dropped) = ws_out_rx.try_recv() {}
-                                            }
+                                                let avg_abs: i32 = if pcm8.is_empty() { 0 } else { (acc / (pcm8.len() as i64)) as i32 };
 
-                                            if user_speaking && silence_frames >= SILENCE_FRAMES_TO_RELEASE {
-                                                user_speaking = false;
-                                                suppress_outbound_audio.store(false, Ordering::Relaxed);
+                                                if avg_abs >= ENERGY_THRESHOLD {
+                                                    speech_frames = speech_frames.saturating_add(1);
+                                                    silence_frames = 0;
+                                                } else {
+                                                    silence_frames = silence_frames.saturating_add(1);
+                                                    speech_frames = 0;
+                                                }
+
+                                                if !user_speaking && speech_frames >= SPEECH_FRAMES_TO_TRIGGER {
+                                                    user_speaking = true;
+                                                    suppress_outbound_audio.store(true, Ordering::Relaxed);
+                                                    // assume we have successfully barged in; treat assistant as no longer speaking
+                                                    assistant_speaking.store(false, Ordering::Relaxed);
+
+                                                    // clear any already-buffered audio on twilio side
+                                                    let sid = stream_sid_clone.read().await.clone();
+                                                    if !sid.is_empty() {
+                                                        let clear = TwilioOutboundClear::new(&sid);
+                                                        if let Ok(clear_json) = serde_json::to_string(&clear) {
+                                                            let _ = ws_sender.send(axum::extract::ws::Message::Text(clear_json)).await;
+                                                        }
+                                                    }
+                                                    // also drop any already-enqueued outbound media json
+                                                    while let Ok(_dropped) = ws_out_rx.try_recv() {}
+                                                }
+
+                                                if user_speaking && silence_frames >= SILENCE_FRAMES_TO_RELEASE {
+                                                    user_speaking = false;
+                                                    suppress_outbound_audio.store(false, Ordering::Relaxed);
+                                                }
                                             }
                                         }
                                     }
+                                    TwilioStreamMessage::Stop { .. } => {
+                                        tracing::info!("Stream stopped");
+                                        let _ = shutdown_tx.send(true);
+                                        let _ = rec_tx.try_send(RecEvt::End);
+                                        break;
+                                    }
+                                    _ => {}
                                 }
-                                TwilioStreamMessage::Stop { .. } => {
-                                    tracing::info!("Stream stopped");
-                                    let _ = rec_tx.try_send(RecEvt::End);
-                                    break;
+                            }
+                            Err(e) => {
+                                if !logged_twilio_parse_error {
+                                    logged_twilio_parse_error = true;
+                                    let preview: String = text.chars().take(600).collect();
+                                    tracing::warn!(error = %e, preview = %preview, "failed to parse twilio stream message (schema mismatch?)");
                                 }
-                                _ => {}
                             }
                         }
                     }
                     Some(Ok(axum::extract::ws::Message::Close(_))) => {
                         tracing::info!("WebSocket closed");
+                        let _ = shutdown_tx.send(true);
+                        let _ = rec_tx.try_send(RecEvt::End);
                         break;
                     }
                     Some(Err(e)) => {
                         tracing::error!("WebSocket error: {}", e);
+                        let _ = shutdown_tx.send(true);
+                        let _ = rec_tx.try_send(RecEvt::End);
                         break;
                     }
                     None => break,
                     _ => {}
                 }
             }
+        }
+    }
+
+    // ensure background tasks don't linger/burn money if the call is over.
+    // try graceful shutdown first so the gemini task can persist end_session; fall back to abort.
+    let _ = shutdown_tx.send(true);
+    drop(gemini_audio_tx);
+
+    let mut gemini_handle = gemini_handle;
+    tokio::select! {
+        _ = &mut gemini_handle => {}
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(2)) => {
+            gemini_handle.abort();
+        }
+    }
+
+    let mut outbound_audio_handle = outbound_audio_handle;
+    tokio::select! {
+        _ = &mut outbound_audio_handle => {}
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+            outbound_audio_handle.abort();
         }
     }
 }

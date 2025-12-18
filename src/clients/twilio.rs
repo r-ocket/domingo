@@ -274,6 +274,7 @@ pub struct TwilioStreamStart {
     pub account_sid: String,
     #[serde(rename = "callSid")]
     pub call_sid: String,
+    #[serde(default)]
     pub tracks: Vec<String>,
     #[serde(rename = "mediaFormat")]
     pub media_format: TwilioMediaFormat,
@@ -289,8 +290,13 @@ pub struct TwilioMediaFormat {
 
 #[derive(Debug, Serialize, Deserialize)]
 pub struct TwilioStreamMedia {
-    pub track: String,
+    /// Twilio includes `track` for dual-track streams ("inbound"/"outbound").
+    /// For single-track streams it may be omitted; treat missing as inbound.
+    #[serde(default)]
+    pub track: Option<String>,
+    #[serde(default)]
     pub chunk: String,
+    #[serde(default)]
     pub timestamp: String,
     pub payload: String, // base64 encoded audio
 }
