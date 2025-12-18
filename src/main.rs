@@ -36,6 +36,7 @@ pub struct AppState {
     pub elevenlabs: Arc<clients::ElevenLabsClient>,
     pub uber: Arc<clients::UberClient>,
     pub stripe: Arc<clients::StripeClient>,
+    pub call_recordings: Arc<clients::CallRecordingsS3>,
     pub templates: Arc<tera::Tera>,
     pub call_state: SharedCallStateStore,
 }
@@ -70,6 +71,15 @@ impl AppState {
             &config.stripe_secret_key,
             &config.stripe_webhook_secret,
         ));
+
+        let call_recordings = Arc::new(
+            clients::CallRecordingsS3::new(
+                config.calls_s3_bucket.clone(),
+                config.calls_s3_prefix.clone(),
+                config.calls_s3_presign_ttl_secs,
+            )
+            .await?
+        );
         
         // Initialize templates
         let templates = Arc::new(
@@ -89,6 +99,7 @@ impl AppState {
             elevenlabs,
             uber,
             stripe,
+            call_recordings,
             templates,
             call_state,
         })

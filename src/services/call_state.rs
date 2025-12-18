@@ -44,6 +44,17 @@ pub struct ToolCallEntry {
     pub timestamp: DateTime<Utc>,
 }
 
+/// Recording info for a call (stored privately in S3; playback via presigned URL)
+#[derive(Debug, Clone, Serialize)]
+pub struct RecordingEntry {
+    pub bucket: String,
+    pub key: String,
+    pub content_type: String,
+    pub duration_secs: f32,
+    pub size_bytes: u64,
+    pub created_at: DateTime<Utc>,
+}
+
 /// Call status
 #[derive(Debug, Clone, Copy, Serialize, PartialEq)]
 #[serde(rename_all = "snake_case")]
@@ -67,6 +78,8 @@ pub struct CallState {
     pub ended_at: Option<DateTime<Utc>>,
     pub transcript: Vec<TranscriptEntry>,
     pub tool_calls: Vec<ToolCallEntry>,
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub recording: Option<RecordingEntry>,
 }
 
 impl CallState {
@@ -88,6 +101,7 @@ impl CallState {
             ended_at: None,
             transcript: Vec::new(),
             tool_calls: Vec::new(),
+            recording: None,
         }
     }
 }
@@ -137,6 +151,11 @@ pub enum CallEvent {
     CallEnded {
         call_sid: String,
         duration_secs: i64,
+    },
+    /// Recording is ready (upload complete)
+    RecordingReady {
+        call_sid: String,
+        recording: RecordingEntry,
     },
 }
 
@@ -395,6 +414,18 @@ impl CallStateStore {
         
         // Keep call in store for a while (could add TTL cleanup later)
         tracing::info!(call_sid = %call_sid, duration_secs = %duration_secs, "Call state store: call ended");
+    }
+
+    /// Mark recording ready for a call (updates in-memory state + broadcasts SSE event)
+    pub fn set_recording_ready(&self, call_sid: &str, recording: RecordingEntry) {
+        if let Some(mut call) = self.calls.get_mut(call_sid) {
+            call.recording = Some(recording.clone());
+        }
+        let event = CallEvent::RecordingReady {
+            call_sid: call_sid.to_string(),
+            recording,
+        };
+        self.broadcast(call_sid, event);
     }
 
     /// Get a call's current state

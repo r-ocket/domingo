@@ -248,6 +248,32 @@
                                 </div>
                             </div>
 
+                            <!-- recording playback -->
+                            <div class="px-4 py-3 border-b border-surface-700/50 flex items-center justify-between gap-3">
+                                <div class="text-sm text-stone-300">
+                                    <span class="text-stone-500">audio:</span>
+                                    <template x-if="selectedCall.recording">
+                                        <span class="ml-1 text-stone-300" x-text="'ready (' + (selectedCall.recording.duration_secs || 0).toFixed(1) + 's)'"></span>
+                                    </template>
+                                    <template x-if="!selectedCall.recording">
+                                        <span class="ml-1 text-stone-500">pending</span>
+                                    </template>
+                                </div>
+                                <div class="flex items-center gap-2">
+                                    <button class="btn btn-secondary btn-sm"
+                                            :disabled="!selectedCall.recording"
+                                            @click="loadRecording(selectedCall.call_sid)">
+                                        cargar
+                                    </button>
+                                </div>
+                            </div>
+                            <div class="px-4 py-3 border-b border-surface-700/50" x-show="selectedCall.recording_url">
+                                <audio controls preload="none" class="w-full" :src="selectedCall.recording_url"></audio>
+                            </div>
+                            <div class="px-4 py-2 border-b border-surface-700/50 text-xs text-red-300"
+                                 x-show="selectedCall.recording_error"
+                                 x-text="selectedCall.recording_error"></div>
+
                             <!-- Side-by-side: transcript + tools timeline -->
                             <div class="flex-1 overflow-hidden p-4">
                                 <div class="grid grid-cols-1 lg:grid-cols-3 gap-4 h-full">
@@ -443,6 +469,13 @@ function callCenter() {
                 const res = await fetch('/api/admin/calls');
                 if (res.ok) {
                     this.calls = await res.json();
+                    // normalize older payloads
+                    this.calls = this.calls.map(c => ({
+                        recording: null,
+                        recording_url: null,
+                        recording_error: null,
+                        ...c
+                    }));
                 }
             } catch (e) {
                 console.error('Failed to load calls:', e);
@@ -490,7 +523,10 @@ function callCenter() {
                         status: 'connecting',
                         started_at: new Date().toISOString(),
                         transcript: [],
-                        tool_calls: []
+                        tool_calls: [],
+                        recording: null,
+                        recording_url: null,
+                        recording_error: null
                     });
                     // Auto-select the new call
                     this.selectCall(event.call_sid);
@@ -517,6 +553,14 @@ function callCenter() {
                         status: 'ended',
                         ended_at: new Date().toISOString()
                     });
+                    break;
+
+                case 'recording_ready':
+                    this.updateCall(event.call_sid, { recording: event.recording });
+                    // if this call is selected, try to fetch a presigned url immediately
+                    if (this.selectedCallSid === event.call_sid) {
+                        this.loadRecording(event.call_sid);
+                    }
                     break;
             }
         },
@@ -599,6 +643,24 @@ function callCenter() {
 
         selectCall(callSid) {
             this.selectedCallSid = callSid;
+        },
+
+        async loadRecording(callSid) {
+            const call = this.calls.find(c => c.call_sid === callSid);
+            if (!call) return;
+
+            call.recording_error = null;
+            try {
+                const res = await fetch(`/api/admin/calls/${callSid}/recording`);
+                const data = await res.json();
+                if (!res.ok) {
+                    call.recording_error = data?.error || 'recording_not_ready';
+                    return;
+                }
+                call.recording_url = data.url;
+            } catch (e) {
+                call.recording_error = e?.message || 'failed_to_load_recording';
+            }
         },
 
         async initiateCall() {

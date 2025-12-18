@@ -26,11 +26,6 @@
                         class="px-4 py-2 text-sm font-medium transition-colors">
                     Viajes
                 </button>
-                <button @click="tab = 'reminders'; loadReminders()" 
-                        :class="tab === 'reminders' ? 'border-b-2 border-primary-500 text-primary-400' : 'text-stone-400 hover:text-stone-100'"
-                        class="px-4 py-2 text-sm font-medium transition-colors">
-                    Recordatorios
-                </button>
             </div>
 
             <!-- Calls Tab -->
@@ -43,14 +38,15 @@
                             <th>Duración</th>
                             <th>Estado</th>
                             <th>Herramientas</th>
+                            <th>Audio</th>
                         </tr>
                     </thead>
                     <tbody>
                         <template x-if="loading">
-                            <tr><td colspan="5" class="text-center text-stone-500 py-8">Cargando...</td></tr>
+                            <tr><td colspan="6" class="text-center text-stone-500 py-8">Cargando...</td></tr>
                         </template>
                         <template x-if="!loading && calls.length === 0">
-                            <tr><td colspan="5" class="text-center text-stone-500 py-8">No hay registros de llamadas.</td></tr>
+                            <tr><td colspan="6" class="text-center text-stone-500 py-8">No hay registros de llamadas.</td></tr>
                         </template>
                         <template x-for="call in calls" :key="call.id">
                             <tr>
@@ -74,6 +70,17 @@
                                         </div>
                                     </template>
                                     <span x-show="!call.tools_used || call.tools_used.length === 0" class="text-stone-500">—</span>
+                                </td>
+                                <td>
+                                    <div class="flex flex-col gap-2">
+                                        <button class="btn btn-secondary btn-sm"
+                                                @click="loadCallRecording(call)"
+                                                x-show="!call.recording_url">
+                                            cargar
+                                        </button>
+                                        <audio controls preload="none" class="w-56" x-show="call.recording_url" :src="call.recording_url"></audio>
+                                        <div class="text-xs text-red-300" x-show="call.recording_error" x-text="call.recording_error"></div>
+                                    </div>
                                 </td>
                             </tr>
                         </template>
@@ -120,42 +127,6 @@
                 </table>
             </div>
 
-            <!-- Reminders Tab -->
-            <div x-show="tab === 'reminders'" x-cloak class="data-table-wrapper">
-                <table class="data-table">
-                    <thead>
-                        <tr>
-                            <th>Fecha</th>
-                            <th>Adulto Mayor</th>
-                            <th>Medicamento</th>
-                            <th>Método</th>
-                            <th>Estado</th>
-                        </tr>
-                    </thead>
-                    <tbody>
-                        <template x-if="loading">
-                            <tr><td colspan="5" class="text-center text-stone-500 py-8">Cargando...</td></tr>
-                        </template>
-                        <template x-if="!loading && reminders.length === 0">
-                            <tr><td colspan="5" class="text-center text-stone-500 py-8">No hay registros de recordatorios.</td></tr>
-                        </template>
-                        <template x-for="reminder in reminders" :key="reminder.id">
-                            <tr>
-                                <td class="text-stone-100" x-text="formatDate(reminder.scheduled_at || reminder.ts)"></td>
-                                <td x-text="reminder.elder_name || 'Desconocido'"></td>
-                                <td x-text="reminder.medication_name || 'Desconocido'"></td>
-                                <td x-text="reminder.delivery_method || 'Llamada'"></td>
-                                <td>
-                                    <span x-show="reminder.confirmed" class="badge badge-green">Confirmado</span>
-                                    <span x-show="reminder.status === 'sent' && !reminder.confirmed" class="badge badge-blue">Enviado</span>
-                                    <span x-show="reminder.status === 'no_answer'" class="badge badge-yellow">Sin Respuesta</span>
-                                    <span x-show="!['sent', 'no_answer'].includes(reminder.status) && !reminder.confirmed" class="badge badge-gray" x-text="reminder.status || 'Pendiente'"></span>
-                                </td>
-                            </tr>
-                        </template>
-                    </tbody>
-                </table>
-            </div>
         </div>
     </main>
 </div>
@@ -167,7 +138,21 @@ function adminLogs() {
         loading: true,
         calls: [],
         rides: [],
-        reminders: [],
+        
+        async loadCallRecording(call) {
+            call.recording_error = null;
+            try {
+                const res = await fetch(`/api/admin/calls/${call.twilio_call_sid}/recording`);
+                const data = await res.json();
+                if (!res.ok) {
+                    call.recording_error = data?.error || 'recording_not_found';
+                    return;
+                }
+                call.recording_url = data.url;
+            } catch (e) {
+                call.recording_error = e?.message || 'failed_to_load_recording';
+            }
+        },
         
         async init() {
             await this.loadCalls();
@@ -176,10 +161,14 @@ function adminLogs() {
         async loadCalls() {
             this.loading = true;
             try {
-                const res = await fetch('/api/admin/calls');
+                const res = await fetch('/api/admin/logs/calls');
                 if (res.ok) {
                     const data = await res.json();
-                    this.calls = data.items || data || [];
+                    this.calls = (data.items || data || []).map(c => ({
+                        recording_url: null,
+                        recording_error: null,
+                        ...c
+                    }));
                 }
             } catch (e) {
                 console.error('Failed to load calls:', e);
@@ -190,27 +179,13 @@ function adminLogs() {
         async loadRides() {
             this.loading = true;
             try {
-                const res = await fetch('/api/admin/rides');
+                const res = await fetch('/api/admin/logs/rides');
                 if (res.ok) {
                     const data = await res.json();
                     this.rides = data.items || data || [];
                 }
             } catch (e) {
                 console.error('Failed to load rides:', e);
-            }
-            this.loading = false;
-        },
-        
-        async loadReminders() {
-            this.loading = true;
-            try {
-                const res = await fetch('/api/admin/reminders');
-                if (res.ok) {
-                    const data = await res.json();
-                    this.reminders = data.items || data || [];
-                }
-            } catch (e) {
-                console.error('Failed to load reminders:', e);
             }
             this.loading = false;
         },

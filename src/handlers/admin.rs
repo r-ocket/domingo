@@ -23,6 +23,14 @@ use crate::repositories::postgres::{
 use crate::services::{CallService, ElderService, RideService};
 use crate::AppState;
 
+#[derive(Serialize)]
+pub struct CallRecordingResponse {
+    pub status: String,
+    pub content_type: String,
+    pub url: String,
+    pub expires_in_secs: u64,
+}
+
 /// List all caregivers (admin only)
 #[tracing::instrument(skip(state, _admin), fields(page = pagination.page, per_page = pagination.per_page))]
 pub async fn list_caregivers(
@@ -276,6 +284,71 @@ pub async fn call_stream_sse(
                 .unwrap()
         }
     }
+}
+
+/// Get a call recording playback URL (presigned S3 GET)
+pub async fn get_call_recording(
+    State(state): State<AppState>,
+    _admin: AdminUser,
+    Path(call_sid): Path<String>,
+) -> impl IntoResponse {
+    let session = match CallService::get_session_by_sid(&state.db, &call_sid).await {
+        Ok(s) => s,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": e.to_string() })),
+            )
+                .into_response();
+        }
+    };
+
+    let meta = match session.metadata {
+        Some(m) => m,
+        None => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "recording_not_found" })),
+            )
+                .into_response();
+        }
+    };
+
+    let key = meta
+        .get("recording")
+        .and_then(|r| r.get("key"))
+        .and_then(|v| v.as_str());
+
+    let key = match key {
+        Some(k) if !k.is_empty() => k.to_string(),
+        _ => {
+            return (
+                axum::http::StatusCode::NOT_FOUND,
+                Json(serde_json::json!({ "error": "recording_not_found" })),
+            )
+                .into_response();
+        }
+    };
+
+    let url = match state.call_recordings.presign_get(&key).await {
+        Ok(u) => u,
+        Err(e) => {
+            return (
+                axum::http::StatusCode::INTERNAL_SERVER_ERROR,
+                Json(serde_json::json!({ "error": format!("presign_failed: {}", e) })),
+            )
+                .into_response();
+        }
+    };
+
+    let resp = CallRecordingResponse {
+        status: "ready".to_string(),
+        content_type: "audio/wav".to_string(),
+        url,
+        expires_in_secs: state.config.calls_s3_presign_ttl_secs,
+    };
+
+    Json(resp).into_response()
 }
 
 // Request/response types

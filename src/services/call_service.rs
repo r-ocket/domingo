@@ -108,6 +108,18 @@ impl CallService {
         };
         CallSessionRepository::update(pool, session_id, &update_req).await
     }
+
+    /// Merge new metadata into existing call_sessions.metadata without clobbering unrelated keys.
+    pub async fn merge_metadata(
+        pool: &PostgresPool,
+        session_id: Uuid,
+        patch: serde_json::Value,
+    ) -> DomainResult<CallSession> {
+        let session = CallSessionRepository::find_by_id(pool, session_id).await?;
+        let mut merged = session.metadata.unwrap_or_else(|| serde_json::json!({}));
+        merge_json(&mut merged, patch);
+        Self::set_metadata(pool, session_id, merged).await
+    }
     
     /// Get session by Twilio call SID
     pub async fn get_session_by_sid(
@@ -120,6 +132,24 @@ impl CallService {
     /// Get calls today count (admin stats)
     pub async fn count_calls_today(pool: &PostgresPool) -> DomainResult<i64> {
         CallSessionRepository::count_today(pool).await
+    }
+}
+
+fn merge_json(dst: &mut serde_json::Value, src: serde_json::Value) {
+    match (dst, src) {
+        (serde_json::Value::Object(dst_obj), serde_json::Value::Object(src_obj)) => {
+            for (k, v) in src_obj {
+                match dst_obj.get_mut(&k) {
+                    Some(existing) => merge_json(existing, v),
+                    None => {
+                        dst_obj.insert(k, v);
+                    }
+                }
+            }
+        }
+        (dst_slot, src_other) => {
+            *dst_slot = src_other;
+        }
     }
 }
 

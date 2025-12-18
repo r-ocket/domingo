@@ -27,6 +27,7 @@ use crate::repositories::postgres::CaregiverRepository;
 use crate::services::{
     CallService, ContactService, ElderService, LocationService,
     MedicationService, Speaker,
+    CallAudioRecorder,
 };
 use crate::AppState;
 
@@ -183,6 +184,91 @@ async fn handle_gemini_stream(
     let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
     let transcript_clone = transcript.clone();
 
+    // Call recording worker: records both tracks while the call is running, then uploads to S3 after call end.
+    #[derive(Debug)]
+    enum RecEvt {
+        UserUlaw(Vec<u8>),
+        AssistantUlawB64(String),
+        End,
+    }
+
+    let (rec_tx, mut rec_rx) = mpsc::channel::<RecEvt>(2000);
+    let call_sid_for_recording = call_sid.to_string();
+    let session_id_for_recording = session_id;
+    let db_for_recording = state.db.clone();
+    let s3_for_recording = state.call_recordings.clone();
+    let call_state_for_recording = state.call_state.clone();
+    tokio::spawn(async move {
+        let mut recorder = match CallAudioRecorder::new(&call_sid_for_recording).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "call recording: failed to init recorder");
+                return;
+            }
+        };
+
+        while let Some(evt) = rec_rx.recv().await {
+            match evt {
+                RecEvt::UserUlaw(ulaw) => {
+                    let _ = recorder.write_user_ulaw_bytes(&ulaw).await;
+                }
+                RecEvt::AssistantUlawB64(b64) => {
+                    let _ = recorder.write_assistant_ulaw_b64(&b64).await;
+                }
+                RecEvt::End => break,
+            }
+        }
+
+        let artifacts = match recorder.finish().await {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!(error = %e, "call recording: failed to finalize wav");
+                return;
+            }
+        };
+
+        let key = s3_for_recording.key_for_call(&call_sid_for_recording);
+        let uploaded = match s3_for_recording.upload_wav_path(&key, &artifacts.wav_path).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!(error = %e, "call recording: s3 upload failed");
+                return;
+            }
+        };
+
+        // Persist into call_sessions.metadata without clobbering prompt/config metadata.
+        let patch = json!({
+            "recording": {
+                "bucket": uploaded.bucket,
+                "key": uploaded.key,
+                "content_type": uploaded.content_type,
+                "duration_secs": artifacts.duration_secs,
+                "size_bytes": artifacts.size_bytes,
+                "sample_rate_hz": artifacts.sample_rate_hz,
+                "channels": artifacts.channels
+            }
+        });
+
+        if let Err(e) = CallService::merge_metadata(&db_for_recording, session_id_for_recording, patch).await {
+            tracing::warn!(error = %e, "call recording: failed to persist metadata");
+        }
+
+        call_state_for_recording.set_recording_ready(
+            &call_sid_for_recording,
+            crate::services::RecordingEntry {
+                bucket: s3_for_recording.bucket().to_string(),
+                key,
+                content_type: "audio/wav".to_string(),
+                duration_secs: artifacts.duration_secs,
+                size_bytes: artifacts.size_bytes,
+                created_at: chrono::Utc::now(),
+            }
+        );
+
+        // best-effort cleanup local wav
+        let _ = tokio::fs::remove_file(&artifacts.wav_path).await;
+    });
+
     // Channels for audio flow
     let (twilio_tx, mut twilio_rx) = mpsc::channel::<String>(200);
     let (gemini_audio_tx, mut gemini_audio_rx) = mpsc::channel::<String>(200);
@@ -191,6 +277,7 @@ async fn handle_gemini_stream(
     // Outbound audio task: send Twilio outbound media frames
     let stream_sid_for_sender = stream_sid.clone();
     let suppress_for_sender = suppress_outbound_audio.clone();
+    let rec_tx_for_sender = rec_tx.clone();
     tokio::spawn(async move {
         while let Some(audio_base64) = twilio_rx.recv().await {
             if suppress_for_sender.load(Ordering::Relaxed) {
@@ -199,6 +286,9 @@ async fn handle_gemini_stream(
             }
             let sid = stream_sid_for_sender.read().await.clone();
             if !sid.is_empty() {
+                // record only what we actually send (so barge-in suppressed audio doesn't appear in playback)
+                let _ = rec_tx_for_sender.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
+
                 let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
                 if let Ok(json) = serde_json::to_string(&msg) {
                     if ws_out_tx.send(json).await.is_err() {
@@ -616,10 +706,13 @@ async fn handle_gemini_stream(
                                     });
                                 }
                                 TwilioStreamMessage::Media { media, .. } => {
-                                    // local barge-in: if user starts speaking while assistant is speaking,
-                                    // clear Twilio's playback buffer and suppress outbound AI audio.
-                                    if assistant_speaking.load(Ordering::Relaxed) {
-                                        if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
+                                    // record inbound user audio
+                                    if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
+                                        let _ = rec_tx.try_send(RecEvt::UserUlaw(ulaw.clone()));
+
+                                        // local barge-in: if user starts speaking while assistant is speaking,
+                                        // clear Twilio's playback buffer and suppress outbound AI audio.
+                                        if assistant_speaking.load(Ordering::Relaxed) {
                                             let pcm8 = crate::clients::audio::ulaw_to_pcm16(&ulaw);
                                             let mut acc: i64 = 0;
                                             for &s in &pcm8 {
@@ -657,10 +750,12 @@ async fn handle_gemini_stream(
                                             }
                                         }
                                     }
+
                                     let _ = gemini_audio_tx.send(media.payload.clone()).await;
                                 }
                                 TwilioStreamMessage::Stop { .. } => {
                                     tracing::info!("Stream stopped");
+                                    let _ = rec_tx.try_send(RecEvt::End);
                                     break;
                                 }
                                 _ => {}

@@ -113,6 +113,7 @@ pub fn api_routes() -> Router<AppState> {
         .route("/api/admin/calls/live", get(admin::calls_sse))
         .route("/api/admin/calls/:call_sid", get(admin::get_call_state))
         .route("/api/admin/calls/:call_sid/stream", get(admin::call_stream_sse))
+        .route("/api/admin/calls/:call_sid/recording", get(admin::get_call_recording))
         
         // Debug routes (no auth - development only)
         .route("/debug/caregiver", post(debug::create_caregiver))

@@ -24,6 +24,11 @@ pub struct Config {
     // Gemini API (Gemini Live)
     pub gemini_api_key: String,
 
+    // Call recordings (S3)
+    pub calls_s3_bucket: String,
+    pub calls_s3_prefix: String,
+    pub calls_s3_presign_ttl_secs: u64,
+
     // ElevenLabs
     pub elevenlabs_api_key: String,
     /// ElevenLabs Conversational AI Agent ID (create in ElevenLabs dashboard)
@@ -79,6 +84,14 @@ impl Config {
             gemini_api_key: env::var("GEMINI_API_KEY")
                 .or_else(|_| env::var("GOOGLE_API_KEY"))
                 .unwrap_or_default(),
+
+            // Call recordings (S3)
+            calls_s3_bucket: env::var("CALLS_S3_BUCKET").unwrap_or_else(|_| "domingo-calls".to_string()),
+            calls_s3_prefix: env::var("CALLS_S3_PREFIX").unwrap_or_else(|_| "calls/".to_string()),
+            calls_s3_presign_ttl_secs: env::var("CALLS_S3_PRESIGN_TTL_SECS")
+                .unwrap_or_else(|_| "3600".to_string())
+                .parse()
+                .unwrap_or(3600),
             
             // ElevenLabs
             elevenlabs_api_key: env::var("ELEVENLABS_API_KEY").unwrap_or_default(),
