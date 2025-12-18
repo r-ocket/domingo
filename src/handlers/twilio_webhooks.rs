@@ -250,7 +250,7 @@ pub async fn outbound_voice(
                         r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{}" track="inbound" />
+        <Stream url="{}" />
     </Connect>
 </Response>"#,
                         stream_url
@@ -285,7 +285,7 @@ pub async fn outbound_voice(
                 r#"<?xml version="1.0" encoding="UTF-8"?>
 <Response>
     <Connect>
-        <Stream url="{}" track="inbound" />
+        <Stream url="{}" />
     </Connect>
 </Response>"#,
                 stream_url
