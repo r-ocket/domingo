@@ -220,8 +220,14 @@ async fn handle_gemini_stream(
             let mut pending_audio_ulaw: VecDeque<String> = VecDeque::with_capacity(200);
 
             // Main loop: multiplex inbound twilio-audio -> gemini, and gemini events -> twilio/transcript.
+            let setup_deadline = tokio::time::sleep(tokio::time::Duration::from_secs(6));
+            tokio::pin!(setup_deadline);
             loop {
                 tokio::select! {
+                    _ = &mut setup_deadline, if !setup_complete => {
+                        tracing::error!("Gemini Live setup_complete timeout (no server response)");
+                        break;
+                    }
                     Some(audio_b64_ulaw) = gemini_audio_rx.recv() => {
                         // Special control message: greeting trigger (sent by outer twilio start handler)
                         if audio_b64_ulaw == "__GREETING__" {

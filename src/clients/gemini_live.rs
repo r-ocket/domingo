@@ -15,6 +15,7 @@ use serde_json::json;
 use base64::Engine;
 use http::header::HeaderValue;
 use tokio::sync::mpsc;
+use tokio::time::{timeout, Duration};
 use tokio_tungstenite::{connect_async, tungstenite::Message};
 use tokio_tungstenite::tungstenite::client::IntoClientRequest;
 
@@ -44,6 +45,7 @@ impl GeminiLiveClient {
         tools: Vec<mcp::ToolDefinition>,
         resume_handle: Option<String>,
     ) -> Result<GeminiLiveSession, GeminiLiveError> {
+        tracing::info!("Gemini Live: connecting websocket");
         // Use `?key=` because it's the most common pattern for API-key auth.
         // We also set the `x-goog-api-key` header for compatibility; servers typically accept either.
         let url = format!("{}?key={}", DEFAULT_LIVE_WSS_ENDPOINT, urlencoding::encode(&self.api_key));
@@ -60,9 +62,11 @@ impl GeminiLiveClient {
                 .map_err(|e| GeminiLiveError::Connection(format!("{e:?}")))?,
         );
 
-        let (ws_stream, _) = connect_async(request)
+        let (ws_stream, _) = timeout(Duration::from_secs(8), connect_async(request))
             .await
+            .map_err(|_| GeminiLiveError::Connection("websocket connect timeout".to_string()))?
             .map_err(|e| GeminiLiveError::Connection(e.to_string()))?;
+        tracing::info!("Gemini Live: websocket connected");
 
         let (write, read) = ws_stream.split();
 
