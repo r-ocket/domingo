@@ -82,6 +82,7 @@ impl GeminiLiveClient {
                 let json_str = serde_json::to_string(&msg).unwrap_or_else(|_| "{}".to_string());
                 let mut guard = write_clone.lock().await;
                 if guard.send(Message::Text(json_str.into())).await.is_err() {
+                    tracing::warn!("Gemini Live: websocket send failed (writer exiting)");
                     break;
                 }
             }
@@ -110,6 +111,30 @@ impl GeminiLiveClient {
                                         error = %e,
                                         preview = %preview,
                                         "Gemini Live: failed to parse server message (schema mismatch?)"
+                                    );
+                                }
+                            }
+                        }
+                    }
+                    Ok(Message::Binary(bin)) => {
+                        // Some servers send JSON as binary frames; try parsing directly from bytes.
+                        match serde_json::from_slice::<ServerMessage>(&bin) {
+                            Ok(event) => {
+                                let _ = tx.send(event).await;
+                            }
+                            Err(e) => {
+                                if !logged_parse_error {
+                                    logged_parse_error = true;
+                                    let preview_len = std::cmp::min(bin.len(), 80);
+                                    let preview_hex = bin[..preview_len]
+                                        .iter()
+                                        .map(|b| format!("{:02x}", b))
+                                        .collect::<Vec<_>>()
+                                        .join("");
+                                    tracing::warn!(
+                                        error = %e,
+                                        preview_hex = %preview_hex,
+                                        "Gemini Live: failed to parse binary server message (json-as-binary?)"
                                     );
                                 }
                             }
@@ -175,6 +200,7 @@ impl GeminiLiveSession {
         resume_handle: Option<String>,
     ) -> Result<(), GeminiLiveError> {
         let msg = ClientMessage::setup(system_instruction, tools, resume_handle);
+        tracing::info!("Gemini Live: sending setup");
         self.send(msg).await
     }
 
@@ -251,8 +277,8 @@ impl ClientMessage {
             // Enable transcriptions (we use these for admin monitoring).
             inputAudioTranscription: Some(json!({})),
             outputAudioTranscription: Some(json!({})),
-            // Keep sessions alive across websocket resets.
-            sessionResumption: Some(SessionResumptionConfig { handle: resume_handle }),
+            // Keep sessions alive across websocket resets (only include if we actually have a handle).
+            sessionResumption: resume_handle.map(|h| SessionResumptionConfig { handle: Some(h) }),
             // Avoid hitting the 128k context cap in long calls.
             contextWindowCompression: Some(json!({ "slidingWindow": {} })),
         };
