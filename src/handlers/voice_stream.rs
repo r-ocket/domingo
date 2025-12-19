@@ -834,10 +834,33 @@ async fn handle_gemini_stream(
 
                                         twilio_media_frames = twilio_media_frames.saturating_add(1);
                                         if twilio_media_frames % 80 == 0 {
+                                            // sanity-check inbound audio energy (helps debug "i talk and nothing happens").
+                                            // this is low-frequency to avoid hot-path overhead.
+                                            let mut avg_abs: i32 = -1;
+                                            let mut max_abs: i32 = -1;
+                                            if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
+                                                let pcm = crate::clients::audio::ulaw_to_pcm16(&ulaw);
+                                                if !pcm.is_empty() {
+                                                    let mut acc: i64 = 0;
+                                                    let mut mx: i32 = 0;
+                                                    for &s in &pcm {
+                                                        let a = (s as i32).abs();
+                                                        acc += a as i64;
+                                                        if a > mx { mx = a; }
+                                                    }
+                                                    avg_abs = (acc / (pcm.len() as i64)) as i32;
+                                                    max_abs = mx;
+                                                } else {
+                                                    avg_abs = 0;
+                                                    max_abs = 0;
+                                                }
+                                            }
                                             tracing::debug!(
                                                 frames = twilio_media_frames,
                                                 dropped_outbound = twilio_media_dropped_outbound,
                                                 payload_b64_len = media.payload.len(),
+                                                avg_abs = avg_abs,
+                                                max_abs = max_abs,
                                                 "twilio media frames flowing"
                                             );
                                         }

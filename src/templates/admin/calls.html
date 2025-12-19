@@ -99,8 +99,10 @@
                                     </div>
 
                                     <div class="form-group">
-                                        <label class="form-label text-xs">transcription languageCode</label>
-                                        <input type="text" x-model="callForm.gemini.transcriptionConfig.languageCode" class="form-input" placeholder="es-US" />
+                                        <label class="form-label text-xs">transcription config (advanced)</label>
+                                        <p class="form-hint text-xs mt-1 text-stone-500">
+                                            schema is STRICT; invalid keys will make gemini close the socket (call may end). leave empty unless you know the live api field names.
+                                        </p>
                                     </div>
 
                                     <div class="grid grid-cols-2 gap-3">
@@ -143,7 +145,7 @@
                                     </div>
                                     <div class="form-group">
                                         <label class="form-label text-xs">advanced transcriptionConfig json (optional)</label>
-                                        <textarea x-model="callForm.gemini.advancedTranscriptionConfigJson" class="form-textarea" rows="3" placeholder='{"languageCode":"es-US"}'></textarea>
+                                        <textarea x-model="callForm.gemini.advancedTranscriptionConfigJson" class="form-textarea" rows="3" placeholder='{"someKey":true}'></textarea>
                                     </div>
                                 </div>
                             </details>
@@ -415,14 +417,12 @@ function callCenter() {
                 realtimeInputConfig: {
                     automaticActivityDetection: {
                         disabled: false,
-                        startOfSpeechSensitivity: "START_SENSITIVITY_LOW",
-                        endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
-                        prefixPaddingMs: 60,
-                        silenceDurationMs: 900
+                        // telephony audio: use a more aggressive default so speech actually triggers turns.
+                        startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
+                        endOfSpeechSensitivity: "END_SENSITIVITY_MEDIUM",
+                        prefixPaddingMs: 160,
+                        silenceDurationMs: 450
                     }
-                },
-                transcriptionConfig: {
-                    languageCode: ""
                 },
                 advancedGenerationConfigJson: "",
                 advancedRealtimeInputConfigJson: "",
@@ -716,12 +716,7 @@ function callCenter() {
                     }
                 }
 
-                if (payload.gemini?.transcriptionConfig) {
-                    const lc = (payload.gemini.transcriptionConfig.languageCode || '').trim();
-                    if (!lc) {
-                        delete payload.gemini.transcriptionConfig;
-                    }
-                }
+                // transcriptionConfig: only set via advanced json; don't send placeholder/empty keys.
 
                 // strip UI-only fields
                 if (payload.gemini) {
