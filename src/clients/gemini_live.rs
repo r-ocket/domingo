@@ -334,10 +334,10 @@ impl ClientMessage {
             // Enable automatic (server-side) VAD; tune per call via overrides.
             realtimeInputConfig: Some(realtime_input_config),
             // Enable transcriptions (we use these for admin monitoring).
-            // Default language to es-MX to avoid "es ist"/gibberish from misdetected locale.
-            // Can be overridden per-call via debug UI.
-            inputAudioTranscription: Some(overrides.input_audio_transcription.unwrap_or_else(|| json!({ "languageCode": "es-MX" }))),
-            outputAudioTranscription: Some(overrides.output_audio_transcription.unwrap_or_else(|| json!({ "languageCode": "es-MX" }))),
+            // Note: this config's schema is strict; don't guess fields here.
+            // If no overrides are provided, send `{}` (enables default transcription).
+            inputAudioTranscription: Some(overrides.input_audio_transcription.unwrap_or_else(|| json!({}))),
+            outputAudioTranscription: Some(overrides.output_audio_transcription.unwrap_or_else(|| json!({}))),
             // Always request session resumption so we can reconnect after transient server errors (1011/goAway).
             // If we don't have a handle yet, this serializes as `{}` and the server should send a handle via
             // `sessionResumptionUpdate.newHandle` once the session is resumable.
