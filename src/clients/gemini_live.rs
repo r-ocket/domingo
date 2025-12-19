@@ -315,7 +315,8 @@ impl ClientMessage {
                 "disabled": false,
                 // telephony audio is quiet + bandlimited; defaulting to LOW is too inert in practice.
                 "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
-                "endOfSpeechSensitivity": "END_SENSITIVITY_MEDIUM",
+                // NOTE: some live models reject END_SENSITIVITY_MEDIUM; stick to known-good enums.
+                "endOfSpeechSensitivity": "END_SENSITIVITY_LOW",
                 "prefixPaddingMs": 160,
                 "silenceDurationMs": 450
             }
@@ -324,6 +325,38 @@ impl ClientMessage {
         let mut realtime_input_config = default_realtime_input_config;
         if let Some(ov) = overrides.realtime_input_config {
             merge_json(&mut realtime_input_config, ov);
+        }
+
+        // sanitize enums so bad UI/advanced-json values don't kill the websocket (1007 invalid payload).
+        // if gemini rejects a value, we prefer to coerce to a safe default rather than end the call.
+        if let Some(aad) = realtime_input_config
+            .get_mut("automaticActivityDetection")
+            .and_then(|v| v.as_object_mut())
+        {
+            let sanitize_enum = |val: &mut serde_json::Value, allowed: &[&str], fallback: &str| {
+                let Some(s) = val.as_str() else {
+                    *val = serde_json::Value::String(fallback.to_string());
+                    return;
+                };
+                if !allowed.iter().any(|a| *a == s) {
+                    *val = serde_json::Value::String(fallback.to_string());
+                }
+            };
+
+            if let Some(v) = aad.get_mut("startOfSpeechSensitivity") {
+                sanitize_enum(
+                    v,
+                    &["START_SENSITIVITY_LOW", "START_SENSITIVITY_HIGH"],
+                    "START_SENSITIVITY_HIGH",
+                );
+            }
+            if let Some(v) = aad.get_mut("endOfSpeechSensitivity") {
+                sanitize_enum(
+                    v,
+                    &["END_SENSITIVITY_LOW", "END_SENSITIVITY_HIGH"],
+                    "END_SENSITIVITY_LOW",
+                );
+            }
         }
 
         let setup = Setup {

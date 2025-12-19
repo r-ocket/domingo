@@ -129,7 +129,6 @@
                                             <label class="form-label text-xs">vad endOfSpeechSensitivity</label>
                                             <select x-model="callForm.gemini.realtimeInputConfig.automaticActivityDetection.endOfSpeechSensitivity" class="form-select">
                                                 <option value="END_SENSITIVITY_LOW">END_SENSITIVITY_LOW</option>
-                                                <option value="END_SENSITIVITY_MEDIUM">END_SENSITIVITY_MEDIUM</option>
                                                 <option value="END_SENSITIVITY_HIGH">END_SENSITIVITY_HIGH</option>
                                             </select>
                                         </div>
@@ -419,7 +418,8 @@ function callCenter() {
                         disabled: false,
                         // telephony audio: use a more aggressive default so speech actually triggers turns.
                         startOfSpeechSensitivity: "START_SENSITIVITY_HIGH",
-                        endOfSpeechSensitivity: "END_SENSITIVITY_MEDIUM",
+                        // gemini live rejects END_SENSITIVITY_MEDIUM on some models; keep to known-good enum values.
+                        endOfSpeechSensitivity: "END_SENSITIVITY_LOW",
                         prefixPaddingMs: 160,
                         silenceDurationMs: 450
                     }
