@@ -313,10 +313,11 @@ impl ClientMessage {
         let default_realtime_input_config = json!({
             "automaticActivityDetection": {
                 "disabled": false,
-                "startOfSpeechSensitivity": "START_SENSITIVITY_LOW",
-                "endOfSpeechSensitivity": "END_SENSITIVITY_LOW",
-                "prefixPaddingMs": 60,
-                "silenceDurationMs": 900
+                // telephony audio is quiet + bandlimited; defaulting to LOW is too inert in practice.
+                "startOfSpeechSensitivity": "START_SENSITIVITY_HIGH",
+                "endOfSpeechSensitivity": "END_SENSITIVITY_MEDIUM",
+                "prefixPaddingMs": 160,
+                "silenceDurationMs": 450
             }
         });
 
@@ -333,8 +334,10 @@ impl ClientMessage {
             // Enable automatic (server-side) VAD; tune per call via overrides.
             realtimeInputConfig: Some(realtime_input_config),
             // Enable transcriptions (we use these for admin monitoring).
-            inputAudioTranscription: Some(overrides.input_audio_transcription.unwrap_or_else(|| json!({}))),
-            outputAudioTranscription: Some(overrides.output_audio_transcription.unwrap_or_else(|| json!({}))),
+            // Default language to es-MX to avoid "es ist"/gibberish from misdetected locale.
+            // Can be overridden per-call via debug UI.
+            inputAudioTranscription: Some(overrides.input_audio_transcription.unwrap_or_else(|| json!({ "languageCode": "es-MX" }))),
+            outputAudioTranscription: Some(overrides.output_audio_transcription.unwrap_or_else(|| json!({ "languageCode": "es-MX" }))),
             // Always request session resumption so we can reconnect after transient server errors (1011/goAway).
             // If we don't have a handle yet, this serializes as `{}` and the server should send a handle via
             // `sessionResumptionUpdate.newHandle` once the session is resumable.
@@ -364,13 +367,14 @@ impl ClientMessage {
     pub fn realtime_audio(audio_bytes: &[u8], mime_type: &str) -> Self {
         ClientMessage::RealtimeInput {
             realtimeInput: RealtimeInput {
-                audio: Some(Blob::from_bytes(audio_bytes, mime_type)),
+                // live api expects mediaChunks for realtime audio; `audio` is not consistently honored.
+                audio: None,
                 audioStreamEnd: None,
                 activityStart: None,
                 activityEnd: None,
                 text: None,
                 video: None,
-                mediaChunks: None,
+                mediaChunks: Some(vec![Blob::from_bytes(audio_bytes, mime_type)]),
             },
         }
     }

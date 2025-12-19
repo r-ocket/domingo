@@ -8,6 +8,7 @@ use dashmap::DashMap;
 use serde::Serialize;
 use std::sync::Arc;
 use tokio::sync::broadcast;
+use tokio::sync::watch;
 use uuid::Uuid;
 
 /// Maximum number of events to buffer in broadcast channel
@@ -199,6 +200,10 @@ pub struct CallStateStore {
     /// Pending per-call configuration overrides captured at call initiation time (debug call center).
     /// Keyed by Twilio call_sid.
     pending_call_configs: DashMap<String, serde_json::Value>,
+
+    /// External shutdown signals keyed by call_sid.
+    /// Used to force-stop media streams (and underlying AI sessions) when Twilio sends status callbacks.
+    shutdown_txs: DashMap<String, watch::Sender<bool>>,
 }
 
 impl Default for CallStateStore {
@@ -220,6 +225,7 @@ impl CallStateStore {
             elevenlabs_conversations: DashMap::new(),
             call_to_elevenlabs: DashMap::new(),
             pending_call_configs: DashMap::new(),
+            shutdown_txs: DashMap::new(),
         }
     }
 
@@ -268,6 +274,24 @@ impl CallStateStore {
         self.broadcast_global(event.clone());
         
         tracing::info!("Call state store: call started");
+    }
+
+    /// Register a shutdown receiver for a call. The media-stream handler should listen to this and exit when true.
+    /// If one already exists, returns a fresh receiver for the existing sender.
+    pub fn register_shutdown(&self, call_sid: &str) -> watch::Receiver<bool> {
+        if let Some(tx) = self.shutdown_txs.get(call_sid) {
+            return tx.subscribe();
+        }
+        let (tx, rx) = watch::channel::<bool>(false);
+        self.shutdown_txs.insert(call_sid.to_string(), tx);
+        rx
+    }
+
+    /// Signal the media-stream handler to shut down for this call.
+    pub fn signal_shutdown(&self, call_sid: &str) {
+        if let Some(tx) = self.shutdown_txs.get(call_sid) {
+            let _ = tx.send(true);
+        }
     }
 
     /// Mark call as active (connected to AI)
@@ -411,6 +435,8 @@ impl CallStateStore {
         
         // Clean up per-call channel
         self.call_txs.remove(call_sid);
+        // Clean up shutdown signal (future status callbacks shouldn't resurrect anything)
+        self.shutdown_txs.remove(call_sid);
         
         // Keep call in store for a while (could add TTL cleanup later)
         tracing::info!(call_sid = %call_sid, duration_secs = %duration_secs, "Call state store: call ended");

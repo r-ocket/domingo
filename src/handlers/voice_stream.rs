@@ -83,6 +83,10 @@ async fn handle_media_stream(
         elder.phone_number.clone(),
         session.voice_provider.to_string(),
     );
+
+    // External shutdown (e.g., Twilio call status webhook says the call completed).
+    // If triggered, we force-stop the media stream even if Twilio's websocket doesn't close cleanly.
+    let external_shutdown_rx = state.call_state.register_shutdown(&call_sid);
     
     // Build dynamic context with elder's data
     let dynamic_prompt = build_dynamic_prompt(&state, &elder).await;
@@ -148,6 +152,7 @@ async fn handle_media_stream(
         full_prompt,
         tool_ctx,
         gemini_overrides,
+        external_shutdown_rx,
     ).await;
     
     // End call in live state store
@@ -167,6 +172,7 @@ async fn handle_gemini_stream(
     dynamic_prompt: String,
     tool_ctx: ToolContext,
     gemini_overrides: GeminiLiveSetupOverrides,
+    mut external_shutdown_rx: watch::Receiver<bool>,
 ) {
     if state.config.gemini_api_key.is_empty() {
         tracing::error!("GEMINI_API_KEY/GOOGLE_API_KEY not set; cannot start Gemini Live session");
@@ -774,6 +780,14 @@ async fn handle_gemini_stream(
 
     loop {
         tokio::select! {
+            _ = external_shutdown_rx.changed() => {
+                if *external_shutdown_rx.borrow() {
+                    tracing::info!("external shutdown requested (twilio status callback)");
+                    let _ = shutdown_tx.send(true);
+                    let _ = rec_tx.try_send(RecEvt::End);
+                    break;
+                }
+            }
             Some(json) = ws_out_rx.recv() => {
                 if ws_sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {
                     break;

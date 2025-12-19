@@ -77,6 +77,11 @@ pub async fn call_status(
     
     // Update call session if call completed
     if payload.call_status == "completed" || payload.call_status == "failed" {
+        // force-stop any lingering media-stream handler tasks (and underlying ai websocket)
+        state.call_state.signal_shutdown(&payload.call_sid);
+        // update live ui state even if the websocket doesn't close cleanly
+        state.call_state.end_call(&payload.call_sid, payload.call_status != "completed");
+
         if let Ok(session) = CallService::get_session_by_sid(&state.db, &payload.call_sid).await {
             let status = if payload.call_status == "completed" {
                 CallStatus::Completed
