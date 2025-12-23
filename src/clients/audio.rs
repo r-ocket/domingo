@@ -21,6 +21,7 @@ pub const GEMINI_MIN_CHUNK_BYTES: usize = 640;
 pub const GEMINI_MAX_CHUNK_BYTES: usize = 1280;
 
 /// Twilio's standard chunk size (20ms @ 8kHz ulaw)
+#[allow(dead_code)]
 pub const TWILIO_CHUNK_BYTES: usize = 160;
 
 /// Audio batcher that accumulates PCM16 bytes until minimum chunk size is reached.
