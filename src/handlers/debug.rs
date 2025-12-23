@@ -178,7 +178,7 @@ pub async fn create_elder(
 #[derive(Debug, Deserialize)]
 pub struct InitiateCallRequest {
     pub elder_id: Uuid,
-    /// Voice provider to use: "gemini_live" (other values accepted but coerced to gemini_live for now)
+    /// Voice provider to use (default: xai_grok)
     #[serde(default)]
     pub voice_provider: Option<String>,
     /// Optional per-call prompt override (appended after the standard system prompt + dynamic elder context)
@@ -221,14 +221,12 @@ pub async fn initiate_call(
 ) -> Result<impl IntoResponse, DebugError> {
     tracing::info!("Initiating outbound call to elder");
     
-    // Parse voice provider (default to Gemini Live). For now we are gemini-only: coerce anything else.
-    let voice_provider = match req.voice_provider.as_deref() {
-        Some("gemini_live") | Some("gemini") | Some("gemini-live") | None => "gemini_live",
-        Some(other) => {
-            tracing::warn!(requested = %other, "debug initiate_call: voice_provider coerced to gemini_live");
-            "gemini_live"
-        }
-    };
+    // Parse voice provider (default: xai_grok)
+    let voice_provider = req
+        .voice_provider
+        .as_deref()
+        .unwrap_or("xai_grok")
+        .to_string();
     
     // Look up elder
     let elder = ElderRepository::find_by_id(&state.db, req.elder_id).await
@@ -250,7 +248,9 @@ pub async fn initiate_call(
             "generationConfig": req.gemini.as_ref().and_then(|g| g.generation_config.clone()),
             "realtimeInputConfig": req.gemini.as_ref().and_then(|g| g.realtime_input_config.clone()),
             "transcriptionConfig": req.gemini.as_ref().and_then(|g| g.transcription_config.clone()),
-        }
+        },
+        // xai per-call overrides (expanded later by ui)
+        "xai": {}
     });
     state.call_state.set_pending_call_config(call_response.sid.clone(), per_call_config);
 

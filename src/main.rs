@@ -33,6 +33,7 @@ pub struct AppState {
     pub twilio: Arc<clients::TwilioClient>,
     pub openai: Arc<clients::OpenAIClient>,
     pub gemini: Arc<clients::gemini_live::GeminiLiveClient>,
+    pub xai: Arc<clients::XaiVoiceAgentClient>,
     pub elevenlabs: Arc<clients::ElevenLabsClient>,
     pub uber: Arc<clients::UberClient>,
     pub stripe: Arc<clients::StripeClient>,
@@ -59,6 +60,8 @@ impl AppState {
         let openai = Arc::new(clients::OpenAIClient::new(&config.openai_api_key));
 
         let gemini = Arc::new(clients::gemini_live::GeminiLiveClient::new(&config.gemini_api_key));
+
+        let xai = Arc::new(clients::XaiVoiceAgentClient::new(&config.xai_api_key));
         
         let elevenlabs = Arc::new(clients::ElevenLabsClient::new(&config.elevenlabs_api_key));
         
@@ -96,6 +99,7 @@ impl AppState {
             twilio,
             openai,
             gemini,
+            xai,
             elevenlabs,
             uber,
             stripe,

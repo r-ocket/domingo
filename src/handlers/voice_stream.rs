@@ -23,6 +23,14 @@ use crate::clients::{
     build_elevenlabs_tools, ELEVENLABS_SYSTEM_PROMPT,
     gemini_live::GeminiLiveSetupOverrides,
     audio::{twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes, gemini_pcm16_24khz_bytes_to_twilio_ulaw_base64},
+    XaiSessionUpdate,
+    XaiSessionConfig,
+    XaiTurnDetection,
+    XaiAudioConfig,
+    XaiAudioSide,
+    XaiAudioFormat,
+    XaiToolConfig,
+    XaiServerEvent,
 };
 use crate::domain::{CallStatus, Elder, LocationType, VoiceProvider};
 use crate::mcp::ToolContext;
@@ -95,6 +103,7 @@ async fn handle_media_stream(
 
     // Per-call overrides (from call_sessions.metadata, set by the call center debug UI).
     let mut gemini_overrides = GeminiLiveSetupOverrides::default();
+    let mut xai_voice_override: Option<String> = None;
     if let Some(meta) = session.metadata.as_ref() {
         if let Some(p) = meta.get("prompt_override").and_then(|v| v.as_str()) {
             let p = p.trim();
@@ -122,6 +131,15 @@ async fn handle_media_stream(
                 }
             }
         }
+
+        if let Some(xai) = meta.get("xai").and_then(|v| v.as_object()) {
+            if let Some(v) = xai.get("voice").and_then(|v| v.as_str()) {
+                let v = v.trim();
+                if !v.is_empty() {
+                    xai_voice_override = Some(v.to_string());
+                }
+            }
+        }
     }
     
     // Create tool context for MCP
@@ -134,31 +152,552 @@ async fn handle_media_stream(
         call_sid: call_sid.clone(),
     };
     
-    // For now we are gemini-only at runtime (keeping other providers in code).
-    if session.voice_provider != VoiceProvider::GeminiLive {
-        tracing::warn!(
-            requested = %session.voice_provider.to_string(),
-            "voice provider coerced to gemini_live (gemini-only runtime)"
-        );
+    match session.voice_provider {
+        VoiceProvider::XaiGrok => {
+            handle_xai_stream(
+                &state,
+                &mut ws_sender,
+                &mut ws_receiver,
+                &call_sid,
+                &elder,
+                session.id,
+                full_prompt,
+                tool_ctx,
+                xai_voice_override,
+                external_shutdown_rx,
+            )
+            .await;
+        }
+        VoiceProvider::GeminiLive => {
+            handle_gemini_stream(
+                &state,
+                &mut ws_sender,
+                &mut ws_receiver,
+                &call_sid,
+                &elder,
+                session.id,
+                full_prompt,
+                tool_ctx,
+                gemini_overrides,
+                external_shutdown_rx,
+            )
+            .await;
+        }
+        other => {
+            tracing::warn!(
+                requested = %other.to_string(),
+                "voice provider coerced to xai_grok (xai-only runtime)"
+            );
+            handle_xai_stream(
+                &state,
+                &mut ws_sender,
+                &mut ws_receiver,
+                &call_sid,
+                &elder,
+                session.id,
+                full_prompt,
+                tool_ctx,
+                xai_voice_override,
+                external_shutdown_rx,
+            )
+            .await;
+        }
     }
-
-    handle_gemini_stream(
-        &state,
-        &mut ws_sender,
-        &mut ws_receiver,
-        &call_sid,
-        &elder,
-        session.id,
-        full_prompt,
-        tool_ctx,
-        gemini_overrides,
-        external_shutdown_rx,
-    ).await;
     
     // End call in live state store
     state.call_state.end_call(&call_sid, false);
     
     tracing::info!("Voice session ended for call {}", call_sid);
+}
+
+/// Handle xAI Grok Voice Agent voice stream (Realtime over WebSockets)
+async fn handle_xai_stream(
+    state: &AppState,
+    ws_sender: &mut futures_util::stream::SplitSink<axum::extract::ws::WebSocket, axum::extract::ws::Message>,
+    ws_receiver: &mut futures_util::stream::SplitStream<axum::extract::ws::WebSocket>,
+    call_sid: &str,
+    _elder: &Elder,
+    session_id: Uuid,
+    system_prompt: String,
+    tool_ctx: ToolContext,
+    voice_override: Option<String>,
+    mut external_shutdown_rx: watch::Receiver<bool>,
+) {
+    if state.config.xai_api_key.is_empty() {
+        tracing::error!("XAI_API_KEY not set; cannot start xai grok voice session");
+        state.call_state.end_call(call_sid, true);
+        return;
+    }
+
+    // Track stream SID for sending audio back
+    let stream_sid = Arc::new(tokio::sync::RwLock::new(String::new()));
+    let stream_sid_clone = stream_sid.clone();
+
+    // Shared transcript accumulator (optional, only for DB transcript field)
+    let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
+    let transcript_clone = transcript.clone();
+
+    // Call recording worker: records both tracks while the call is running, then uploads to S3 after call end.
+    #[derive(Debug)]
+    enum RecEvt {
+        UserUlawB64(String),
+        AssistantUlawB64(String),
+        End,
+    }
+
+    let (rec_tx, mut rec_rx) = mpsc::channel::<RecEvt>(2000);
+    let call_sid_for_recording = call_sid.to_string();
+    let session_id_for_recording = session_id;
+    let db_for_recording = state.db.clone();
+    let s3_for_recording = state.call_recordings.clone();
+    let call_state_for_recording = state.call_state.clone();
+    tokio::spawn(async move {
+        let mut recorder = match CallAudioRecorder::new(&call_sid_for_recording).await {
+            Ok(r) => r,
+            Err(e) => {
+                tracing::warn!(error = %e, "call recording: failed to init recorder");
+                return;
+            }
+        };
+
+        while let Some(evt) = rec_rx.recv().await {
+            match evt {
+                RecEvt::UserUlawB64(b64) => {
+                    let _ = recorder.write_user_ulaw_b64(&b64).await;
+                }
+                RecEvt::AssistantUlawB64(b64) => {
+                    let _ = recorder.write_assistant_ulaw_b64(&b64).await;
+                }
+                RecEvt::End => break,
+            }
+        }
+
+        let artifacts = match recorder.finish().await {
+            Ok(a) => a,
+            Err(e) => {
+                tracing::warn!(error = %e, "call recording: failed to finalize wav");
+                return;
+            }
+        };
+
+        let key = s3_for_recording.key_for_call(&call_sid_for_recording);
+        let uploaded = match s3_for_recording.upload_wav_path(&key, &artifacts.wav_path).await {
+            Ok(u) => u,
+            Err(e) => {
+                tracing::warn!(error = %e, "call recording: s3 upload failed");
+                return;
+            }
+        };
+
+        // Persist into call_sessions.metadata without clobbering prompt/config metadata.
+        let patch = json!({
+            "recording": {
+                "bucket": uploaded.bucket,
+                "key": uploaded.key,
+                "content_type": uploaded.content_type,
+                "duration_secs": artifacts.duration_secs,
+                "size_bytes": artifacts.size_bytes,
+                "sample_rate_hz": artifacts.sample_rate_hz,
+                "channels": artifacts.channels,
+                "bits_per_sample": artifacts.bits_per_sample,
+                "format": "wav_pcm8_mono"
+            }
+        });
+
+        if let Err(e) = CallService::merge_metadata(&db_for_recording, session_id_for_recording, patch).await {
+            tracing::warn!(error = %e, "call recording: failed to persist metadata");
+        }
+
+        call_state_for_recording.set_recording_ready(
+            &call_sid_for_recording,
+            crate::services::RecordingEntry {
+                bucket: s3_for_recording.bucket().to_string(),
+                key,
+                content_type: "audio/wav".to_string(),
+                duration_secs: artifacts.duration_secs,
+                size_bytes: artifacts.size_bytes,
+                created_at: chrono::Utc::now(),
+            }
+        );
+
+        // best-effort cleanup local wav
+        let _ = tokio::fs::remove_file(&artifacts.wav_path).await;
+    });
+
+    // Channels for audio flow
+    let (twilio_tx, mut twilio_rx) = mpsc::channel::<String>(200);
+    let (xai_audio_tx, mut xai_audio_rx) = mpsc::channel::<String>(200);
+    let (ws_out_tx, mut ws_out_rx) = mpsc::channel::<String>(200);
+
+    // Shutdown signal: flips true when the Twilio stream stops/closes so background tasks halt.
+    let (shutdown_tx, shutdown_rx) = watch::channel::<bool>(false);
+
+    // Outbound audio task: send Twilio outbound media frames
+    let stream_sid_for_sender = stream_sid.clone();
+    let rec_tx_for_sender = rec_tx.clone();
+    let outbound_audio_handle = tokio::spawn(async move {
+        while let Some(audio_base64) = twilio_rx.recv().await {
+            let sid = stream_sid_for_sender.read().await.clone();
+            if !sid.is_empty() {
+                // record only what we actually send
+                let _ = rec_tx_for_sender.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
+                let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
+                if let Ok(json) = serde_json::to_string(&msg) {
+                    if ws_out_tx.send(json).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+    });
+
+    // xAI session task
+    let state_clone = state.clone();
+    let call_sid_for_xai = call_sid.to_string();
+    let tool_ctx_clone = tool_ctx.clone();
+    let mut shutdown_rx_xai = shutdown_rx.clone();
+    let voice = voice_override.unwrap_or_else(|| "Ara".to_string());
+    let xai_handle = tokio::spawn(async move {
+        use std::collections::VecDeque;
+
+        // Build tool declarations from our MCP registry.
+        let tools: Vec<crate::mcp::ToolDefinition> = crate::mcp::ToolRegistry::list_tools();
+        let tool_cfgs: Vec<XaiToolConfig> = tools
+            .into_iter()
+            .map(|t| XaiToolConfig::Function {
+                name: t.name,
+                description: t.description,
+                parameters: t.input_schema,
+            })
+            .collect();
+
+        let session_update = XaiSessionUpdate {
+            session: XaiSessionConfig {
+                instructions: system_prompt,
+                voice,
+                turn_detection: Some(XaiTurnDetection {
+                    r#type: Some("server_vad".to_string()),
+                }),
+                audio: XaiAudioConfig {
+                    input: XaiAudioSide {
+                        format: XaiAudioFormat {
+                            r#type: "audio/pcmu".to_string(),
+                            rate: None,
+                        },
+                    },
+                    output: XaiAudioSide {
+                        format: XaiAudioFormat {
+                            r#type: "audio/pcmu".to_string(),
+                            rate: None,
+                        },
+                    },
+                },
+                tools: Some(tool_cfgs),
+            },
+        };
+
+        let connect_fut = state_clone.xai.connect(session_update);
+        let connect_result = tokio::select! {
+            _ = shutdown_rx_xai.changed() => {
+                return;
+            }
+            res = connect_fut => res,
+        };
+
+        let mut session = match connect_result {
+            Ok(s) => s,
+            Err(e) => {
+                tracing::error!("failed to connect to xai realtime: {}", e);
+                state_clone.call_state.end_call(&call_sid_for_xai, true);
+                return;
+            }
+        };
+
+        let mut setup_complete = false;
+        let mut pending_audio_ulaw: VecDeque<String> = VecDeque::with_capacity(200);
+        let mut pending_greeting = false;
+
+        let mut current_assistant_text = String::new();
+
+        loop {
+            if *shutdown_rx_xai.borrow() {
+                break;
+            }
+
+            tokio::select! {
+                _ = shutdown_rx_xai.changed() => {
+                    if *shutdown_rx_xai.borrow() {
+                        break;
+                    }
+                }
+                Some(audio_b64_ulaw) = xai_audio_rx.recv() => {
+                    if audio_b64_ulaw == "__GREETING__" {
+                        pending_greeting = true;
+                        continue;
+                    }
+
+                    if !setup_complete {
+                        if pending_audio_ulaw.len() >= 200 {
+                            pending_audio_ulaw.pop_front();
+                        }
+                        pending_audio_ulaw.push_back(audio_b64_ulaw);
+                        continue;
+                    }
+
+                    // normal audio path: twilio g711_ulaw base64 passthrough to xai (audio/pcmu)
+                    if let Err(e) = session.append_audio_b64(audio_b64_ulaw).await {
+                        tracing::error!("failed to send audio to xai realtime: {}", e);
+                        break;
+                    }
+                }
+                evt_opt = session.recv_event() => {
+                    let evt = match evt_opt {
+                        Some(e) => e,
+                        None => break,
+                    };
+
+                    match evt {
+                        XaiServerEvent::SessionUpdated { .. } => {
+                            if !setup_complete {
+                                setup_complete = true;
+                                state_clone.call_state.set_active(&call_sid_for_xai);
+                                tracing::info!("xai realtime session.updated received");
+
+                                while let Some(ulaw_b64) = pending_audio_ulaw.pop_front() {
+                                    let _ = session.append_audio_b64(ulaw_b64).await;
+                                }
+
+                                if pending_greeting {
+                                    pending_greeting = false;
+                                    let _ = session.send_user_text("hola").await;
+                                    let _ = session.request_response().await;
+                                }
+                            }
+                        }
+                        XaiServerEvent::ConversationCreated { .. } => {
+                            tracing::debug!("xai realtime conversation.created");
+                        }
+                        XaiServerEvent::ConversationItemInputAudioTranscriptionCompleted { transcript, .. } => {
+                            state_clone.call_state.add_transcript(
+                                &call_sid_for_xai,
+                                Speaker::User,
+                                transcript,
+                                false,
+                            );
+                        }
+                        XaiServerEvent::ResponseOutputAudioTranscriptDelta { delta, .. } => {
+                            if !delta.trim().is_empty() {
+                                current_assistant_text.push_str(&delta);
+                                state_clone.call_state.add_transcript(
+                                    &call_sid_for_xai,
+                                    Speaker::Assistant,
+                                    current_assistant_text.clone(),
+                                    true,
+                                );
+                            }
+                        }
+                        XaiServerEvent::ResponseOutputAudioTranscriptDone { .. } => {
+                            let final_text = current_assistant_text.trim().to_string();
+                            if !final_text.is_empty() {
+                                state_clone.call_state.add_transcript(
+                                    &call_sid_for_xai,
+                                    Speaker::Assistant,
+                                    final_text.clone(),
+                                    false,
+                                );
+                                let mut acc = transcript_clone.lock().await;
+                                acc.push_str(&final_text);
+                                acc.push('\n');
+                            }
+                            current_assistant_text.clear();
+                        }
+                        XaiServerEvent::ResponseOutputAudioDelta { delta, .. } => {
+                            let _ = twilio_tx.send(delta).await;
+                        }
+                        XaiServerEvent::ResponseFunctionCallArgumentsDone { name, call_id, arguments, .. } => {
+                            state_clone.call_state.add_tool_call(
+                                &call_sid_for_xai,
+                                call_id.clone(),
+                                name.clone(),
+                                arguments.clone(),
+                            );
+
+                            let args_json: serde_json::Value = serde_json::from_str(&arguments).unwrap_or_else(|_| serde_json::json!({}));
+                            let result = crate::mcp::execute_tool(&tool_ctx_clone, &name, args_json).await;
+                            let _ = CallService::record_tool_usage(&state_clone.db, session_id, &name).await;
+
+                            let result_json: serde_json::Value = if let Some(text_content) = result.content.first() {
+                                match text_content {
+                                    crate::mcp::ToolResultContent::Text { text } => {
+                                        serde_json::from_str(text).unwrap_or(json!({ "result": text }))
+                                    }
+                                    _ => json!({ "error": "unexpected_result_type" }),
+                                }
+                            } else {
+                                json!({ "error": "no_result" })
+                            };
+
+                            let is_error = result.is_error.unwrap_or(false)
+                                || result_json.get("error").is_some()
+                                || result_json.get("errors").is_some();
+
+                            let result_str = serde_json::to_string(&result_json).unwrap_or_default();
+                            state_clone.call_state.complete_tool_call_with_meta(
+                                &call_sid_for_xai,
+                                &call_id,
+                                result_str,
+                                Some(is_error),
+                            );
+
+                            let _ = session.send_function_result(&call_id, result_json).await;
+                            let _ = session.request_response().await;
+                        }
+                        XaiServerEvent::Error { error } => {
+                            tracing::error!(error = %error, "xai realtime server error");
+                        }
+                        _ => {}
+                    }
+                }
+                else => break,
+            }
+        }
+
+        // End session in DB with transcript if any
+        let final_transcript = {
+            let t = transcript_clone.lock().await;
+            if t.is_empty() { None } else { Some(t.clone()) }
+        };
+        let _ = CallService::end_session(
+            &state_clone.db,
+            session_id,
+            CallStatus::Completed,
+            None,
+            final_transcript,
+        ).await;
+    });
+
+    // Twilio websocket loop (provider-agnostic plumbing)
+    let mut twilio_media_dropped_outbound: u64 = 0;
+    let mut logged_twilio_parse_error = false;
+    loop {
+        tokio::select! {
+            _ = external_shutdown_rx.changed() => {
+                if *external_shutdown_rx.borrow() {
+                    tracing::info!("external shutdown requested (twilio status callback)");
+                    let _ = shutdown_tx.send(true);
+                    let _ = rec_tx.try_send(RecEvt::End);
+                    break;
+                }
+            }
+            Some(json) = ws_out_rx.recv() => {
+                if ws_sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {
+                    break;
+                }
+            }
+            msg = ws_receiver.next() => {
+                match msg {
+                    Some(Ok(axum::extract::ws::Message::Text(text))) => {
+                        match serde_json::from_str::<TwilioStreamMessage>(&text) {
+                            Ok(twilio_msg) => {
+                                match twilio_msg {
+                                    TwilioStreamMessage::Start { stream_sid: sid, start } => {
+                                        *stream_sid_clone.write().await = sid;
+                                        tracing::info!(
+                                            call_sid = %start.call_sid,
+                                            tracks = ?start.tracks,
+                                            encoding = %start.media_format.encoding,
+                                            sample_rate = start.media_format.sample_rate,
+                                            channels = start.media_format.channels,
+                                            "Stream started"
+                                        );
+
+                                        // trigger a greeting shortly after connect
+                                        let greeting_tx = xai_audio_tx.clone();
+                                        tokio::spawn(async move {
+                                            tokio::time::sleep(tokio::time::Duration::from_millis(400)).await;
+                                            let _ = greeting_tx.send("__GREETING__".to_string()).await;
+                                        });
+                                    }
+                                    TwilioStreamMessage::Media { media, .. } => {
+                                        // Twilio may send outbound track too; ignore it.
+                                        match media.track.as_deref() {
+                                            Some("outbound") => {
+                                                twilio_media_dropped_outbound = twilio_media_dropped_outbound.saturating_add(1);
+                                                continue;
+                                            }
+                                            Some("inbound") | None | Some("") => {}
+                                            Some(other) => {
+                                                tracing::debug!(track = %other, "twilio media: unknown track; treating as inbound");
+                                            }
+                                        }
+
+                                        // feed xai
+                                        if xai_audio_tx.send(media.payload.clone()).await.is_err() {
+                                            tracing::warn!("xai audio channel closed; ending twilio stream loop");
+                                            let _ = shutdown_tx.send(true);
+                                            let _ = rec_tx.try_send(RecEvt::End);
+                                            break;
+                                        }
+
+                                        // record without decoding
+                                        let _ = rec_tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
+                                    }
+                                    TwilioStreamMessage::Stop { .. } => {
+                                        tracing::info!("Stream stopped");
+                                        let _ = shutdown_tx.send(true);
+                                        let _ = rec_tx.try_send(RecEvt::End);
+                                        break;
+                                    }
+                                    _ => {}
+                                }
+                            }
+                            Err(e) => {
+                                if !logged_twilio_parse_error {
+                                    logged_twilio_parse_error = true;
+                                    let preview: String = text.chars().take(600).collect();
+                                    tracing::warn!(error = %e, preview = %preview, "failed to parse twilio stream message (schema mismatch?)");
+                                }
+                            }
+                        }
+                    }
+                    Some(Ok(axum::extract::ws::Message::Close(_))) => {
+                        tracing::info!("WebSocket closed");
+                        let _ = shutdown_tx.send(true);
+                        let _ = rec_tx.try_send(RecEvt::End);
+                        break;
+                    }
+                    Some(Err(e)) => {
+                        tracing::error!("WebSocket error: {}", e);
+                        let _ = shutdown_tx.send(true);
+                        let _ = rec_tx.try_send(RecEvt::End);
+                        break;
+                    }
+                    None => break,
+                    _ => {}
+                }
+            }
+        }
+    }
+
+    // ensure background tasks don't linger/burn money if the call is over.
+    let _ = shutdown_tx.send(true);
+    drop(xai_audio_tx);
+
+    let mut xai_handle = xai_handle;
+    tokio::select! {
+        _ = &mut xai_handle => {}
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(2)) => {
+            xai_handle.abort();
+        }
+    }
+
+    let mut outbound_audio_handle = outbound_audio_handle;
+    tokio::select! {
+        _ = &mut outbound_audio_handle => {}
+        _ = tokio::time::sleep(tokio::time::Duration::from_secs(1)) => {
+            outbound_audio_handle.abort();
+        }
+    }
 }
 
 /// Handle Gemini Live voice stream (Gemini API Live over WebSockets)

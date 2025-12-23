@@ -24,13 +24,13 @@ pub async fn incoming_call(
     // Look up elder by phone number
     match ElderService::get_elder_by_phone(&state.db, &payload.from).await {
         Ok(elder) => {
-            // Create call session (incoming calls default to Gemini Live)
+            // Create call session (incoming calls default to xAI Grok Voice Agent)
             if let Err(e) = CallService::start_session(
                 &state.db,
                 elder.id,
                 &payload.call_sid,
                 &payload.from,
-                VoiceProvider::GeminiLive,
+                VoiceProvider::XaiGrok,
             ).await {
                 tracing::error!("Failed to create call session: {}", e);
             }
@@ -204,13 +204,13 @@ pub async fn outbound_voice(
 ) -> impl IntoResponse {
     tracing::info!("Processing outbound voice call");
     
-    // Parse voice provider (default to Gemini Live). For now we are gemini-only: coerce anything else.
+    // Parse voice provider (default to xAI Grok Voice Agent).
     let voice_provider = match params.voice_provider.as_deref() {
-        Some("gemini_live") | Some("gemini") | Some("gemini-live") | None => VoiceProvider::GeminiLive,
-        Some(other) => {
-            tracing::warn!(requested = %other, "outbound_voice: voice_provider coerced to gemini_live");
-            VoiceProvider::GeminiLive
-        }
+        None => VoiceProvider::XaiGrok,
+        Some(s) => s.parse().unwrap_or_else(|_| {
+            tracing::warn!(requested = %s, "outbound_voice: invalid voice_provider; defaulting to xai_grok");
+            VoiceProvider::XaiGrok
+        }),
     };
     
     // Parse elder ID

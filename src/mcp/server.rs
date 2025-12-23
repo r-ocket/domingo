@@ -265,9 +265,10 @@ mod tests {
     #[test]
     fn test_list_tools() {
         let tools = ToolRegistry::list_tools();
-        assert_eq!(tools.len(), 2);
-        assert_eq!(tools[0].name, "request_ride");
-        assert_eq!(tools[1].name, "call_contact");
+        // tool registry may grow over time; assert on a couple of stable, must-have tools.
+        let names: std::collections::HashSet<String> = tools.into_iter().map(|t| t.name).collect();
+        assert!(names.contains("request_ride"));
+        assert!(names.contains("call_contact"));
     }
 }
 

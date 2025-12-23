@@ -12,6 +12,7 @@ pub enum VoiceProvider {
     OpenaiRealtime,
     Elevenlabs,
     GeminiLive,
+    XaiGrok,
 }
 
 impl std::fmt::Display for VoiceProvider {
@@ -20,6 +21,7 @@ impl std::fmt::Display for VoiceProvider {
             VoiceProvider::OpenaiRealtime => write!(f, "openai_realtime"),
             VoiceProvider::Elevenlabs => write!(f, "elevenlabs"),
             VoiceProvider::GeminiLive => write!(f, "gemini_live"),
+            VoiceProvider::XaiGrok => write!(f, "xai_grok"),
         }
     }
 }
@@ -32,6 +34,7 @@ impl std::str::FromStr for VoiceProvider {
             "openai_realtime" | "openai" | "gpt-realtime" => Ok(VoiceProvider::OpenaiRealtime),
             "elevenlabs" | "eleven" | "11labs" => Ok(VoiceProvider::Elevenlabs),
             "gemini_live" | "gemini" | "gemini-live" => Ok(VoiceProvider::GeminiLive),
+            "xai_grok" | "xai" | "grok" | "grok_voice" | "grok-voice" | "xai-voice" => Ok(VoiceProvider::XaiGrok),
             _ => Err(format!("Invalid voice provider: {}", s)),
         }
     }

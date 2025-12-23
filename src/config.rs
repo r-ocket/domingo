@@ -24,6 +24,9 @@ pub struct Config {
     // Gemini API (Gemini Live)
     pub gemini_api_key: String,
 
+    // xAI (Grok Voice Agent)
+    pub xai_api_key: String,
+
     // Call recordings (S3)
     pub calls_s3_bucket: String,
     pub calls_s3_prefix: String,
@@ -84,6 +87,9 @@ impl Config {
             gemini_api_key: env::var("GEMINI_API_KEY")
                 .or_else(|_| env::var("GOOGLE_API_KEY"))
                 .unwrap_or_default(),
+
+            // xAI
+            xai_api_key: env::var("XAI_API_KEY").unwrap_or_default(),
 
             // Call recordings (S3)
             calls_s3_bucket: env::var("CALLS_S3_BUCKET").unwrap_or_else(|_| "domingo-calls".to_string()),

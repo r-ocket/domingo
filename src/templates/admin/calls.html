@@ -40,14 +40,15 @@
                             </div>
                             <div class="form-group">
                                 <label class="form-label">Motor de Voz</label>
-                                <select x-model="callForm.voice_provider" class="form-select" disabled>
+                                <select x-model="callForm.voice_provider" class="form-select">
+                                    <option value="xai_grok">Grok Voice Agent (xAI)</option>
                                     <option value="gemini_live">Gemini Live (Gemini API)</option>
                                 </select>
-                                <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'gemini_live'">
-                                    Gemini Live API (audio nativo) + tools
+                                <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'xai_grok'">
+                                    xai grok voice agent (realtime) + tools
                                 </p>
                                 <p class="form-hint text-xs mt-1 text-stone-500">
-                                    por ahora: gemini live ONLY
+                                    default: xai grok
                                 </p>
                             </div>
                             <div class="form-group">
@@ -406,7 +407,7 @@ function callCenter() {
         selectedCallSid: null,
         callForm: {
             elder_id: '',
-            voice_provider: 'gemini_live',
+            voice_provider: 'xai_grok',
             prompt_override: '',
             gemini: {
                 generationConfig: {
@@ -737,7 +738,7 @@ function callCenter() {
                     this.callError = data.error || 'Error al iniciar llamada';
                 } else {
                     this.callForm.elder_id = '';
-                    this.callForm.voice_provider = 'gemini_live';
+                    this.callForm.voice_provider = 'xai_grok';
                     this.callForm.prompt_override = '';
                     // The SSE will handle adding the call to the list
                 }
