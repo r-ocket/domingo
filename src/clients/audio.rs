@@ -1,8 +1,68 @@
 //! audio utilities for twilio (g711 ulaw @ 8khz) <-> gemini live (pcm16 @ 16khz in / 24khz out)
 //!
 //! this is intentionally dependency-free: simple g.711 µ-law codec + small-ratio resampling.
+//!
+//! ## Gemini Live Audio Chunk Size Requirements
+//!
+//! Per Google's best practices, audio should be sent in chunks of 20-40ms.
+//! At 16kHz PCM16:
+//!   - 20ms = 320 samples = 640 bytes
+//!   - 40ms = 640 samples = 1280 bytes
+//!
+//! Twilio sends 20ms chunks at 8kHz (160 bytes ulaw), which after upsampling
+//! to 16kHz becomes exactly 640 bytes (20ms) - this is optimal.
 
 use base64::{engine::general_purpose::STANDARD as BASE64, Engine as _};
+
+/// Minimum recommended chunk size for Gemini Live input (20ms @ 16kHz)
+pub const GEMINI_MIN_CHUNK_BYTES: usize = 640;
+
+/// Maximum recommended chunk size for Gemini Live input (40ms @ 16kHz)
+pub const GEMINI_MAX_CHUNK_BYTES: usize = 1280;
+
+/// Twilio's standard chunk size (20ms @ 8kHz ulaw)
+pub const TWILIO_CHUNK_BYTES: usize = 160;
+
+/// Audio batcher that accumulates PCM16 bytes until minimum chunk size is reached.
+/// Ensures we always send at least 20ms chunks to Gemini Live per best practices.
+#[derive(Debug, Default)]
+pub struct GeminiAudioBatcher {
+    buffer: Vec<u8>,
+}
+
+impl GeminiAudioBatcher {
+    pub fn new() -> Self {
+        Self {
+            buffer: Vec::with_capacity(GEMINI_MAX_CHUNK_BYTES),
+        }
+    }
+
+    /// Add PCM16 bytes to the buffer. Returns chunks of at least GEMINI_MIN_CHUNK_BYTES
+    /// when enough data has accumulated. May return multiple chunks if buffer is large.
+    pub fn push(&mut self, pcm16_bytes: &[u8]) -> Vec<Vec<u8>> {
+        self.buffer.extend_from_slice(pcm16_bytes);
+
+        let mut chunks = Vec::new();
+
+        // Emit chunks of exactly GEMINI_MIN_CHUNK_BYTES (20ms) when we have enough
+        while self.buffer.len() >= GEMINI_MIN_CHUNK_BYTES {
+            let chunk: Vec<u8> = self.buffer.drain(..GEMINI_MIN_CHUNK_BYTES).collect();
+            chunks.push(chunk);
+        }
+
+        chunks
+    }
+
+    /// Flush any remaining buffered audio (may be less than minimum chunk size).
+    /// Call this when the stream ends to avoid losing trailing audio.
+    pub fn flush(&mut self) -> Option<Vec<u8>> {
+        if self.buffer.is_empty() {
+            None
+        } else {
+            Some(std::mem::take(&mut self.buffer))
+        }
+    }
+}
 
 #[derive(Debug, thiserror::Error)]
 pub enum AudioError {

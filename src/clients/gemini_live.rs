@@ -360,7 +360,8 @@ impl ClientMessage {
         }
 
         let setup = Setup {
-            model: "models/gemini-2.5-flash-native-audio-preview-12-2025".to_string(),
+            // Use the GA model for production stability.
+            model: "models/gemini-live-2.5-flash-native-audio".to_string(),
             generationConfig: generation_config,
             systemInstruction: Some(system_instruction),
             tools: tool_defs,
@@ -376,7 +377,32 @@ impl ClientMessage {
             // `sessionResumptionUpdate.newHandle` once the session is resumable.
             sessionResumption: Some(SessionResumptionConfig { handle: resume_handle }),
             // Avoid hitting the 128k context cap in long calls.
-            contextWindowCompression: Some(json!({ "slidingWindow": {} })),
+            // Native audio accumulates ~25 tokens/second; trigger at 10k, compress to 2k.
+            contextWindowCompression: Some(json!({
+                "triggerTokens": 10000,
+                "slidingWindow": { "targetTokens": 2048 }
+            })),
+            // Voice configuration: use a warm/friendly voice for elderly users.
+            // Available voices: Kore, Orus, Umbriel, Laomedeia, Sadachbia (warm), etc.
+            // Language: es-US (Spanish US) - es-MX not available for native audio.
+            speechConfig: Some(json!({
+                "voiceConfig": {
+                    "prebuiltVoiceConfig": {
+                        "voiceName": "Orus"
+                    }
+                },
+                "languageCode": "es-US"
+            })),
+            // Affective dialog: model adapts tone/style to match user's emotional expression.
+            // Helpful for elderly users who may speak with varied emotional states.
+            nativeAudioOutputConfig: Some(json!({
+                "enableAffectiveDialog": true
+            })),
+            // Proactive audio: model controls when to respond, reducing interruptions
+            // from background noise and waiting for user to finish speaking.
+            proactivityConfig: Some(json!({
+                "proactiveAudio": true
+            })),
         };
 
         ClientMessage::Setup { setup }
@@ -452,6 +478,15 @@ pub struct Setup {
     pub sessionResumption: Option<SessionResumptionConfig>,
     #[serde(skip_serializing_if = "Option::is_none")]
     pub contextWindowCompression: Option<serde_json::Value>,
+    /// Voice and language configuration (voiceConfig + languageCode)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub speechConfig: Option<serde_json::Value>,
+    /// Native audio output settings (e.g., enableAffectiveDialog)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub nativeAudioOutputConfig: Option<serde_json::Value>,
+    /// Proactivity settings (e.g., proactiveAudio)
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub proactivityConfig: Option<serde_json::Value>,
 }
 
 #[derive(Debug, Serialize)]

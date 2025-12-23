@@ -26,6 +26,7 @@ use crate::clients::{
         twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes,
         gemini_pcm16_24khz_bytes_to_twilio_ulaw_base64,
         ulaw_to_pcm16,
+        GeminiAudioBatcher,
     },
     XaiSessionUpdate,
     XaiSessionConfig,
@@ -1043,6 +1044,11 @@ async fn handle_gemini_stream(
         let mut current_assistant_text = String::new();
         let mut cancelled_tool_call_ids: HashSet<String> = HashSet::new();
 
+        // Audio batcher: ensures we send chunks of at least 20ms to Gemini per best practices.
+        // Twilio sends 20ms @ 8kHz, which after upsampling becomes exactly 640 bytes (20ms @ 16kHz),
+        // so this is mostly a pass-through, but provides safety if chunk sizes vary.
+        let mut audio_batcher = GeminiAudioBatcher::new();
+
         // Tool declarations come from our MCP registry.
         let tools: Vec<crate::mcp::ToolDefinition> = crate::mcp::ToolRegistry::list_tools();
 
@@ -1129,6 +1135,10 @@ async fn handle_gemini_stream(
                 tokio::select! {
                     _ = shutdown_rx_gemini.changed() => {
                         if *shutdown_rx_gemini.borrow() {
+                            // Flush any remaining buffered audio before signaling stream end
+                            if let Some(remaining) = audio_batcher.flush() {
+                                let _ = session.send_realtime_audio_pcm16_16khz(&remaining).await;
+                            }
                             // best-effort: tell gemini the audio stream ended, then exit.
                             let _ = session.send_audio_stream_end().await;
                             break;
@@ -1162,12 +1172,16 @@ async fn handle_gemini_stream(
                             let _ = session.send_client_text_turn("hola", true).await;
                         }
 
-                        // Normal audio path
+                        // Normal audio path: transcode and batch to ensure 20-40ms chunks per best practices
                         match twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes(&audio_b64_ulaw) {
                             Ok(pcm16_16k) => {
-                                if let Err(e) = session.send_realtime_audio_pcm16_16khz(&pcm16_16k).await {
-                                    tracing::error!("Failed to send audio to Gemini: {}", e);
-                                    break;
+                                // Batch audio into 20ms chunks (Twilio usually sends exactly 20ms,
+                                // so this is mostly pass-through but provides safety margin)
+                                for chunk in audio_batcher.push(&pcm16_16k) {
+                                    if let Err(e) = session.send_realtime_audio_pcm16_16khz(&chunk).await {
+                                        tracing::error!("Failed to send audio to Gemini: {}", e);
+                                        break;
+                                    }
                                 }
                             }
                             Err(e) => tracing::warn!("Audio transcode error (twilio->gemini): {}", e),
