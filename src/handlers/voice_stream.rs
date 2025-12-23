@@ -98,8 +98,20 @@ async fn handle_media_stream(
     
     // Build dynamic context with elder's data
     let dynamic_prompt = build_dynamic_prompt(&state, &elder).await;
-    // Full system instruction: behavioral prompt + per-elder context
-    let mut full_prompt = format!("{}\n\n---\n\n{}", crate::clients::SYSTEM_PROMPT, dynamic_prompt);
+
+    // Provider-specific prompt packing.
+    //
+    // NOTE: some realtime models appear to truncate long instructions; we prefer losing
+    // generic behavioral prompt content over losing per-elder facts (medications/contacts/etc).
+    //
+    // - gemini: keep the existing ordering (system -> context)
+    // - xai: put context first, then system prompt
+    let mut gemini_prompt = format!("{}\n\n---\n\n{}", crate::clients::SYSTEM_PROMPT, dynamic_prompt);
+    let mut xai_prompt = format!(
+        "## idioma\nSIEMPRE responde en español (es-MX).\n\n---\n\n{}\n\n---\n\n{}",
+        dynamic_prompt,
+        crate::clients::SYSTEM_PROMPT
+    );
 
     // Per-call overrides (from call_sessions.metadata, set by the call center debug UI).
     let mut gemini_overrides = GeminiLiveSetupOverrides::default();
@@ -108,8 +120,10 @@ async fn handle_media_stream(
         if let Some(p) = meta.get("prompt_override").and_then(|v| v.as_str()) {
             let p = p.trim();
             if !p.is_empty() {
-                full_prompt.push_str("\n\n---\n\n## instrucciones extra (solo para esta llamada)\n");
-                full_prompt.push_str(p);
+                for prompt in [&mut gemini_prompt, &mut xai_prompt] {
+                    prompt.push_str("\n\n---\n\n## instrucciones extra (solo para esta llamada)\n");
+                    prompt.push_str(p);
+                }
             }
         }
 
@@ -161,7 +175,7 @@ async fn handle_media_stream(
                 &call_sid,
                 &elder,
                 session.id,
-                full_prompt,
+                xai_prompt,
                 tool_ctx,
                 xai_voice_override,
                 external_shutdown_rx,
@@ -176,7 +190,7 @@ async fn handle_media_stream(
                 &call_sid,
                 &elder,
                 session.id,
-                full_prompt,
+                gemini_prompt,
                 tool_ctx,
                 gemini_overrides,
                 external_shutdown_rx,
@@ -195,7 +209,7 @@ async fn handle_media_stream(
                 &call_sid,
                 &elder,
                 session.id,
-                full_prompt,
+                xai_prompt,
                 tool_ctx,
                 xai_voice_override,
                 external_shutdown_rx,
