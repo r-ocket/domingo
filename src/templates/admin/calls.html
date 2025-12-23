@@ -60,6 +60,20 @@
                                         sent as call_sessions.metadata.xai.voice (per-call override)
                                     </p>
                                 </div>
+                                <div class="mt-2" x-show="callForm.voice_provider === 'gemini_live'">
+                                    <label class="form-label text-xs">voz</label>
+                                    <select x-model="callForm.gemini.voice" class="form-select">
+                                        <option value="Orus">Orus (warm, friendly) - default</option>
+                                        <option value="Kore">Kore (warm, gentle)</option>
+                                        <option value="Aoede">Aoede (bright, cheerful)</option>
+                                        <option value="Charon">Charon (calm, informative)</option>
+                                        <option value="Fenrir">Fenrir (excitable)</option>
+                                        <option value="Puck">Puck (upbeat)</option>
+                                    </select>
+                                    <p class="form-hint text-xs mt-1 text-stone-500">
+                                        gemini native audio voices (es-US)
+                                    </p>
+                                </div>
                                 <p class="form-hint text-xs mt-1 text-stone-500">
                                     default: xai grok
                                 </p>
@@ -426,6 +440,7 @@ function callCenter() {
                 voice: 'Ara',
             },
             gemini: {
+                voice: 'Orus',
                 generationConfig: {
                     temperature: 0.7,
                     maxOutputTokens: 1024,

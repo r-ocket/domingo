@@ -177,6 +177,13 @@ async fn handle_media_stream(
                     gemini_overrides.output_audio_transcription = Some(tc.clone());
                 }
             }
+            // Voice name override (e.g., "Orus", "Kore", "Aoede")
+            if let Some(v) = gemini.get("voice").and_then(|v| v.as_str()) {
+                let v = v.trim();
+                if !v.is_empty() {
+                    gemini_overrides.voice_name = Some(v.to_string());
+                }
+            }
         }
 
         if let Some(xai) = meta.get("xai").and_then(|v| v.as_object()) {
