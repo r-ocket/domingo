@@ -985,6 +985,9 @@ async fn handle_gemini_stream(
     let (gemini_audio_tx, mut gemini_audio_rx) = mpsc::channel::<String>(200);
     let (ws_out_tx, mut ws_out_rx) = mpsc::channel::<String>(200);
 
+    // Channel for signaling Twilio to clear its outbound buffer (on Gemini's `interrupted`)
+    let (clear_buffer_tx, mut clear_buffer_rx) = mpsc::channel::<()>(8);
+
     // Shutdown signal: flips true when the Twilio stream stops/closes so background tasks halt.
     let (shutdown_tx, shutdown_rx) = watch::channel::<bool>(false);
 
@@ -1029,6 +1032,7 @@ async fn handle_gemini_stream(
     let gemini_overrides = gemini_overrides.clone();
     let suppress_outbound_audio_clone = suppress_outbound_audio.clone();
     let assistant_speaking_clone = assistant_speaking.clone();
+    let clear_buffer_tx_clone = clear_buffer_tx.clone();
     let mut shutdown_rx_gemini = shutdown_rx.clone();
     let gemini_handle = tokio::spawn(async move {
         use crate::clients::gemini_live::FunctionResponse;
@@ -1043,6 +1047,10 @@ async fn handle_gemini_stream(
         let mut current_user_text = String::new();
         let mut current_assistant_text = String::new();
         let mut cancelled_tool_call_ids: HashSet<String> = HashSet::new();
+
+        // Channel for async tool execution results.
+        // Tools are spawned as separate tasks to avoid blocking the audio loop.
+        let (tool_response_tx, mut tool_response_rx) = mpsc::channel::<FunctionResponse>(32);
 
         // Audio batcher: ensures we send chunks of at least 20ms to Gemini per best practices.
         // Twilio sends 20ms @ 8kHz, which after upsampling becomes exactly 640 bytes (20ms @ 16kHz),
@@ -1148,6 +1156,25 @@ async fn handle_gemini_stream(
                         tracing::error!("Gemini Live setup_complete timeout (no server response)");
                         break;
                     }
+                    // Handle completed tool executions (non-blocking)
+                    Some(response) = tool_response_rx.recv() => {
+                        // Check if this tool was cancelled while executing
+                        if cancelled_tool_call_ids.contains(&response.id) {
+                            tracing::info!(
+                                id = %response.id,
+                                name = %response.name,
+                                "Gemini Live: tool completed but was cancelled, not sending response"
+                            );
+                            continue;
+                        }
+
+                        tracing::info!(
+                            id = %response.id,
+                            name = %response.name,
+                            "Gemini Live: sending tool response"
+                        );
+                        let _ = session.send_tool_responses(vec![response]).await;
+                    }
                     Some(audio_b64_ulaw) = gemini_audio_rx.recv() => {
                         // Special control message: greeting trigger (sent by outer twilio start handler)
                         if audio_b64_ulaw == "__GREETING__" {
@@ -1238,29 +1265,72 @@ async fn handle_gemini_stream(
                         // Audio + transcripts
                         if let Some(content) = msg.server_content {
                             // Input transcription (user)
+                            // Uses `finished` field to determine if this is final or streaming
                             if let Some(t) = content.input_transcription {
-                                tracing::debug!(text = %t.text, "Gemini input transcription");
-                                merge_streaming_text(&mut current_user_text, &t.text);
-                                state_clone.call_state.add_transcript(
-                                    &call_sid_for_gemini,
-                                    Speaker::User,
-                                    current_user_text.clone(),
-                                    true,
-                                );
+                                let is_final = t.finished.unwrap_or(false);
+                                tracing::debug!(text = %t.text, finished = is_final, "Gemini input transcription");
+
+                                if is_final {
+                                    // Final transcription: use directly without merging heuristics
+                                    current_user_text = t.text.clone();
+                                    state_clone.call_state.add_transcript(
+                                        &call_sid_for_gemini,
+                                        Speaker::User,
+                                        current_user_text.clone(),
+                                        false, // not partial
+                                    );
+                                    // Commit immediately since it's final
+                                    let _ = maybe_commit_final(&state_clone.call_state, &call_sid_for_gemini, Speaker::User, &mut current_user_text);
+                                } else {
+                                    // Streaming: accumulate with heuristics
+                                    merge_streaming_text(&mut current_user_text, &t.text);
+                                    state_clone.call_state.add_transcript(
+                                        &call_sid_for_gemini,
+                                        Speaker::User,
+                                        current_user_text.clone(),
+                                        true, // partial
+                                    );
+                                }
                             }
                             // Output transcription (assistant)
                             if let Some(t) = content.output_transcription {
-                                tracing::debug!(text = %t.text, "Gemini output transcription");
-                                // if user was mid-partial, commit it once the assistant starts responding
+                                let is_final = t.finished.unwrap_or(false);
+                                tracing::debug!(text = %t.text, finished = is_final, "Gemini output transcription");
+
+                                // If user was mid-partial, commit it once the assistant starts responding
                                 let _ = maybe_commit_final(&state_clone.call_state, &call_sid_for_gemini, Speaker::User, &mut current_user_text);
 
-                                merge_streaming_text(&mut current_assistant_text, &t.text);
-                                state_clone.call_state.add_transcript(
-                                    &call_sid_for_gemini,
-                                    Speaker::Assistant,
-                                    current_assistant_text.clone(),
-                                    true,
-                                );
+                                if is_final {
+                                    // Final transcription: use directly
+                                    current_assistant_text = t.text.clone();
+                                    state_clone.call_state.add_transcript(
+                                        &call_sid_for_gemini,
+                                        Speaker::Assistant,
+                                        current_assistant_text.clone(),
+                                        false,
+                                    );
+                                } else {
+                                    // Streaming: accumulate with heuristics
+                                    merge_streaming_text(&mut current_assistant_text, &t.text);
+                                    state_clone.call_state.add_transcript(
+                                        &call_sid_for_gemini,
+                                        Speaker::Assistant,
+                                        current_assistant_text.clone(),
+                                        true,
+                                    );
+                                }
+                            }
+
+                            // Handle Gemini's `interrupted` signal (user barged in)
+                            // This is more reliable than client-side VAD because Gemini
+                            // has access to the full audio context.
+                            if content.interrupted.unwrap_or(false) {
+                                tracing::debug!("Gemini Live: interrupted signal received, clearing buffer");
+                                // Immediately suppress any pending outbound audio
+                                suppress_outbound_audio_clone.store(true, Ordering::Relaxed);
+                                assistant_speaking_clone.store(false, Ordering::Relaxed);
+                                // Signal Twilio to clear its buffer
+                                let _ = clear_buffer_tx_clone.try_send(());
                             }
 
                             // Turn boundaries: commit any partial bubbles
@@ -1270,8 +1340,9 @@ async fn handle_gemini_stream(
                                 || content.interrupted.unwrap_or(false);
 
                             if turn_done {
-                                // model turn ended or got interrupted; allow outbound audio again
+                                // model turn ended; allow outbound audio again
                                 assistant_speaking_clone.store(false, Ordering::Relaxed);
+                                // Only un-suppress after interrupted if we're done with the turn
                                 suppress_outbound_audio_clone.store(false, Ordering::Relaxed);
 
                                 if let Some(final_text) = maybe_commit_final(
@@ -1313,7 +1384,7 @@ async fn handle_gemini_stream(
                             }
                         }
 
-                        // Tool calls (function calling)
+                        // Tool calls (function calling) - spawn async to avoid blocking audio
                         if let Some(tool_call) = msg.tool_call {
                             if !tool_call.function_calls.is_empty() {
                                 // commit any pending partial user text before we act on tools
@@ -1321,10 +1392,8 @@ async fn handle_gemini_stream(
 
                                 tracing::info!(
                                     count = tool_call.function_calls.len(),
-                                    "Gemini Live: tool_call received"
+                                    "Gemini Live: tool_call received, spawning async execution"
                                 );
-
-                                let mut function_responses: Vec<FunctionResponse> = Vec::with_capacity(tool_call.function_calls.len());
 
                                 for fc in tool_call.function_calls {
                                     if cancelled_tool_call_ids.contains(&fc.id) {
@@ -1334,72 +1403,82 @@ async fn handle_gemini_stream(
 
                                     let call_id = fc.id.clone();
                                     let tool_name = fc.name.clone();
-                                    let args_str = serde_json::to_string(&fc.args).unwrap_or_default();
+                                    let args = fc.args.clone();
+                                    let args_str = serde_json::to_string(&args).unwrap_or_default();
 
                                     tracing::info!(
                                         id = %call_id,
                                         name = %tool_name,
                                         args = %args_str,
-                                        "Gemini Live: executing tool"
+                                        "Gemini Live: spawning tool execution"
                                     );
 
                                     state_clone.call_state.add_tool_call(
                                         &call_sid_for_gemini,
                                         call_id.clone(),
                                         tool_name.clone(),
-                                        args_str.clone(),
+                                        args_str,
                                     );
 
-                                    // Execute via MCP (local tool runtime)
-                                    let result = crate::mcp::execute_tool(&tool_ctx_clone, &tool_name, fc.args).await;
-                                    let _ = CallService::record_tool_usage(&state_clone.db, session_id, &tool_name).await;
+                                    // Spawn tool execution to avoid blocking the audio loop
+                                    let tool_ctx = tool_ctx_clone.clone();
+                                    let state_for_tool = state_clone.clone();
+                                    let call_sid_for_tool = call_sid_for_gemini.clone();
+                                    let response_tx = tool_response_tx.clone();
+                                    let session_id_for_tool = session_id;
 
-                                    // Convert MCP result to JSON value
-                                    let result_json: serde_json::Value = if let Some(text_content) = result.content.first() {
-                                        match text_content {
-                                            crate::mcp::ToolResultContent::Text { text } => {
-                                                serde_json::from_str(text).unwrap_or(json!({ "result": text }))
+                                    tokio::spawn(async move {
+                                        let result = crate::mcp::execute_tool(&tool_ctx, &tool_name, args).await;
+                                        let _ = CallService::record_tool_usage(&state_for_tool.db, session_id_for_tool, &tool_name).await;
+
+                                        // Convert MCP result to JSON value
+                                        let result_json: serde_json::Value = if let Some(text_content) = result.content.first() {
+                                            match text_content {
+                                                crate::mcp::ToolResultContent::Text { text } => {
+                                                    serde_json::from_str(text).unwrap_or(json!({ "result": text }))
+                                                }
+                                                _ => json!({ "error": "unexpected_result_type" }),
                                             }
-                                            _ => json!({ "error": "unexpected_result_type" }),
+                                        } else {
+                                            json!({ "error": "no_result" })
+                                        };
+
+                                        let is_error = result.is_error.unwrap_or(false)
+                                            || result_json.get("error").is_some()
+                                            || result_json.get("errors").is_some();
+
+                                        let scheduling = match tool_name.as_str() {
+                                            "call_contact" | "call_contact_by_id" => "INTERRUPT",
+                                            "request_ride" | "request_ride_by_location_id" => "INTERRUPT",
+                                            _ => "WHEN_IDLE",
+                                        };
+
+                                        let result_str = serde_json::to_string(&result_json).unwrap_or_default();
+
+                                        state_for_tool.call_state.complete_tool_call_with_meta(
+                                            &call_sid_for_tool,
+                                            &call_id,
+                                            result_str,
+                                            Some(is_error),
+                                        );
+
+                                        // Send response back to main loop
+                                        let response = FunctionResponse {
+                                            id: call_id.clone(),
+                                            name: tool_name.clone(),
+                                            scheduling: Some(scheduling.to_string()),
+                                            response: result_json,
+                                        };
+
+                                        if response_tx.send(response).await.is_err() {
+                                            tracing::warn!(
+                                                id = %call_id,
+                                                name = %tool_name,
+                                                "Gemini Live: failed to send tool response (channel closed)"
+                                            );
                                         }
-                                    } else {
-                                        json!({ "error": "no_result" })
-                                    };
-
-                                    let is_error = result.is_error.unwrap_or(false)
-                                        || result_json.get("error").is_some()
-                                        || result_json.get("errors").is_some();
-
-                                    let scheduling = match tool_name.as_str() {
-                                        // transfers should interrupt the assistant immediately
-                                        "call_contact" | "call_contact_by_id" => "INTERRUPT",
-                                        // ride booking is usually ok to interrupt too (it changes the conversation state)
-                                        "request_ride" | "request_ride_by_location_id" => "INTERRUPT",
-                                        _ => "WHEN_IDLE",
-                                    };
-
-                                    let result_str = serde_json::to_string(&result_json).unwrap_or_default();
-
-                                    state_clone.call_state.complete_tool_call_with_meta(
-                                        &call_sid_for_gemini,
-                                        &call_id,
-                                        result_str,
-                                        Some(is_error),
-                                    );
-
-                                    function_responses.push(FunctionResponse {
-                                        id: call_id,
-                                        name: tool_name,
-                                        scheduling: Some(scheduling.to_string()),
-                                        response: result_json,
                                     });
                                 }
-
-                                tracing::info!(
-                                    count = function_responses.len(),
-                                    "Gemini Live: sending tool responses"
-                                );
-                                let _ = session.send_tool_responses(function_responses).await;
                             }
                         }
 
@@ -1477,19 +1556,13 @@ async fn handle_gemini_stream(
         ).await;
     });
 
-    // Twilio websocket loop (same shape as other providers)
-    // local VAD for barge-in: simple energy threshold + hangover
-    let mut user_speaking = false;
-    let mut speech_frames: u32 = 0;
-    let mut silence_frames: u32 = 0;
+    // Twilio websocket loop
+    // Note: Barge-in detection is handled server-side by Gemini's VAD, which sends
+    // `interrupted` when the user starts speaking. We just forward audio and handle
+    // the clear signal when it arrives.
     let mut twilio_media_frames: u64 = 0;
     let mut twilio_media_dropped_outbound: u64 = 0;
     let mut logged_twilio_parse_error = false;
-    // 20ms frames; require ~60ms speech onset and ~400ms silence to release
-    const SPEECH_FRAMES_TO_TRIGGER: u32 = 2;
-    const SILENCE_FRAMES_TO_RELEASE: u32 = 20;
-    const ENERGY_THRESHOLD: i32 = 650; // heuristic; tweak if too sensitive
-    const ASSISTANT_SPEAKING_HANGOVER_MS: u64 = 1200;
 
     loop {
         tokio::select! {
@@ -1502,6 +1575,19 @@ async fn handle_gemini_stream(
                     }
                     break;
                 }
+            }
+            // Handle clear buffer signal from Gemini's interrupted handler
+            Some(()) = clear_buffer_rx.recv() => {
+                let sid = stream_sid_clone.read().await.clone();
+                if !sid.is_empty() {
+                    let clear = TwilioOutboundClear::new(&sid);
+                    if let Ok(clear_json) = serde_json::to_string(&clear) {
+                        let _ = ws_sender.send(axum::extract::ws::Message::Text(clear_json)).await;
+                    }
+                }
+                // Also drain any pending outbound media
+                while let Ok(_dropped) = ws_out_rx.try_recv() {}
+                tracing::debug!("Twilio buffer cleared on Gemini interrupted signal");
             }
             Some(json) = ws_out_rx.recv() => {
                 if ws_sender.send(axum::extract::ws::Message::Text(json)).await.is_err() {
@@ -1580,7 +1666,7 @@ async fn handle_gemini_stream(
                                             );
                                         }
 
-                                        // 1) feed gemini first (keep hot path minimal)
+                                        // Forward audio to Gemini (barge-in is handled server-side)
                                         if gemini_audio_tx.send(media.payload.clone()).await.is_err() {
                                             tracing::warn!("gemini audio channel closed; ending twilio stream loop");
                                             let _ = shutdown_tx.send(true);
@@ -1590,60 +1676,9 @@ async fn handle_gemini_stream(
                                             break;
                                         }
 
-                                        // 2) enqueue recording without decoding (secondary path)
+                                        // Enqueue recording
                                         if let Some(tx) = rec_tx.as_ref() {
                                             let _ = tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
-                                        }
-
-                                        // 3) local barge-in (decode only when assistant is speaking)
-                                        let now_ms = std::time::SystemTime::now()
-                                            .duration_since(std::time::UNIX_EPOCH)
-                                            .map(|d| d.as_millis() as u64)
-                                            .unwrap_or(0);
-                                        let last_ms = last_assistant_audio_sent_ms.load(Ordering::Relaxed);
-                                        let assistant_recent = last_ms > 0 && now_ms.saturating_sub(last_ms) <= ASSISTANT_SPEAKING_HANGOVER_MS;
-                                        let assistant_active = assistant_speaking.load(Ordering::Relaxed) || assistant_recent;
-
-                                        if assistant_active {
-                                            if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
-                                                let pcm8 = crate::clients::audio::ulaw_to_pcm16(&ulaw);
-                                                let mut acc: i64 = 0;
-                                                for &s in &pcm8 {
-                                                    acc += (s as i32).abs() as i64;
-                                                }
-                                                let avg_abs: i32 = if pcm8.is_empty() { 0 } else { (acc / (pcm8.len() as i64)) as i32 };
-
-                                                if avg_abs >= ENERGY_THRESHOLD {
-                                                    speech_frames = speech_frames.saturating_add(1);
-                                                    silence_frames = 0;
-                                                } else {
-                                                    silence_frames = silence_frames.saturating_add(1);
-                                                    speech_frames = 0;
-                                                }
-
-                                                if !user_speaking && speech_frames >= SPEECH_FRAMES_TO_TRIGGER {
-                                                    user_speaking = true;
-                                                    suppress_outbound_audio.store(true, Ordering::Relaxed);
-                                                    // assume we have successfully barged in; treat assistant as no longer speaking
-                                                    assistant_speaking.store(false, Ordering::Relaxed);
-
-                                                    // clear any already-buffered audio on twilio side
-                                                    let sid = stream_sid_clone.read().await.clone();
-                                                    if !sid.is_empty() {
-                                                        let clear = TwilioOutboundClear::new(&sid);
-                                                        if let Ok(clear_json) = serde_json::to_string(&clear) {
-                                                            let _ = ws_sender.send(axum::extract::ws::Message::Text(clear_json)).await;
-                                                        }
-                                                    }
-                                                    // also drop any already-enqueued outbound media json
-                                                    while let Ok(_dropped) = ws_out_rx.try_recv() {}
-                                                }
-
-                                                if user_speaking && silence_frames >= SILENCE_FRAMES_TO_RELEASE {
-                                                    user_speaking = false;
-                                                    suppress_outbound_audio.store(false, Ordering::Relaxed);
-                                                }
-                                            }
                                         }
                                     }
                                     TwilioStreamMessage::Stop { .. } => {
