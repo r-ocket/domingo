@@ -46,6 +46,10 @@ use crate::services::{
 };
 use crate::AppState;
 
+// debug mode: keep the realtime path as clean as possible.
+// set to true if/when you want call recordings + s3 upload back.
+const ENABLE_CALL_RECORDING: bool = false;
+
 /// Handle Twilio media stream WebSocket connection
 #[tracing::instrument(skip(ws, state), fields(call_sid = %call_sid))]
 pub async fn media_stream(
@@ -103,6 +107,19 @@ async fn handle_media_stream(
     // Build dynamic context with elder's data
     let dynamic_prompt = build_dynamic_prompt(&state, &elder).await;
 
+    // dump dynamic context for debugging (this is the ground truth for meds/contacts/locations).
+    // WARNING: may include sensitive addresses/notes; keep at debug level.
+    tracing::info!(
+        elder_id = %elder.id,
+        dynamic_context_len = dynamic_prompt.len(),
+        "voice: built dynamic context"
+    );
+    tracing::debug!(
+        elder_id = %elder.id,
+        dynamic_context = %dynamic_prompt,
+        "voice: dynamic context dump"
+    );
+
     // Provider-specific prompt packing.
     //
     // NOTE: some realtime models appear to truncate long instructions; we prefer losing
@@ -115,6 +132,18 @@ async fn handle_media_stream(
         "## idioma\nSIEMPRE responde en español (es-MX).\n\n---\n\n{}\n\n---\n\n{}",
         dynamic_prompt,
         crate::clients::SYSTEM_PROMPT
+    );
+
+    tracing::info!(
+        elder_id = %elder.id,
+        xai_instructions_len = xai_prompt.len(),
+        gemini_instructions_len = gemini_prompt.len(),
+        "voice: packed provider instructions"
+    );
+    tracing::debug!(
+        elder_id = %elder.id,
+        xai_instructions = %xai_prompt,
+        "voice: xai session.update.instructions dump"
     );
 
     // Per-call overrides (from call_sessions.metadata, set by the call center debug UI).
@@ -263,84 +292,89 @@ async fn handle_xai_stream(
         End,
     }
 
-    let (rec_tx, mut rec_rx) = mpsc::channel::<RecEvt>(2000);
-    let call_sid_for_recording = call_sid.to_string();
-    let session_id_for_recording = session_id;
-    let db_for_recording = state.db.clone();
-    let s3_for_recording = state.call_recordings.clone();
-    let call_state_for_recording = state.call_state.clone();
-    tokio::spawn(async move {
-        let mut recorder = match CallAudioRecorder::new(&call_sid_for_recording).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %e, "call recording: failed to init recorder");
-                return;
-            }
-        };
-
-        while let Some(evt) = rec_rx.recv().await {
-            match evt {
-                RecEvt::UserUlawB64(b64) => {
-                    let _ = recorder.write_user_ulaw_b64(&b64).await;
+    let rec_tx: Option<mpsc::Sender<RecEvt>> = if ENABLE_CALL_RECORDING {
+        let (rec_tx, mut rec_rx) = mpsc::channel::<RecEvt>(2000);
+        let call_sid_for_recording = call_sid.to_string();
+        let session_id_for_recording = session_id;
+        let db_for_recording = state.db.clone();
+        let s3_for_recording = state.call_recordings.clone();
+        let call_state_for_recording = state.call_state.clone();
+        tokio::spawn(async move {
+            let mut recorder = match CallAudioRecorder::new(&call_sid_for_recording).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(error = %e, "call recording: failed to init recorder");
+                    return;
                 }
-                RecEvt::AssistantUlawB64(b64) => {
-                    let _ = recorder.write_assistant_ulaw_b64(&b64).await;
+            };
+
+            while let Some(evt) = rec_rx.recv().await {
+                match evt {
+                    RecEvt::UserUlawB64(b64) => {
+                        let _ = recorder.write_user_ulaw_b64(&b64).await;
+                    }
+                    RecEvt::AssistantUlawB64(b64) => {
+                        let _ = recorder.write_assistant_ulaw_b64(&b64).await;
+                    }
+                    RecEvt::End => break,
                 }
-                RecEvt::End => break,
             }
-        }
 
-        let artifacts = match recorder.finish().await {
-            Ok(a) => a,
-            Err(e) => {
-                tracing::warn!(error = %e, "call recording: failed to finalize wav");
-                return;
-            }
-        };
+            let artifacts = match recorder.finish().await {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!(error = %e, "call recording: failed to finalize wav");
+                    return;
+                }
+            };
 
-        let key = s3_for_recording.key_for_call(&call_sid_for_recording);
-        let uploaded = match s3_for_recording.upload_wav_path(&key, &artifacts.wav_path).await {
-            Ok(u) => u,
-            Err(e) => {
-                tracing::warn!(error = %e, "call recording: s3 upload failed");
-                return;
-            }
-        };
+            let key = s3_for_recording.key_for_call(&call_sid_for_recording);
+            let uploaded = match s3_for_recording.upload_wav_path(&key, &artifacts.wav_path).await {
+                Ok(u) => u,
+                Err(e) => {
+                    tracing::warn!(error = %e, "call recording: s3 upload failed");
+                    return;
+                }
+            };
 
-        // Persist into call_sessions.metadata without clobbering prompt/config metadata.
-        let patch = json!({
-            "recording": {
-                "bucket": uploaded.bucket,
-                "key": uploaded.key,
-                "content_type": uploaded.content_type,
-                "duration_secs": artifacts.duration_secs,
-                "size_bytes": artifacts.size_bytes,
-                "sample_rate_hz": artifacts.sample_rate_hz,
-                "channels": artifacts.channels,
-                "bits_per_sample": artifacts.bits_per_sample,
-                "format": "wav_pcm8_mono"
+            // Persist into call_sessions.metadata without clobbering prompt/config metadata.
+            let patch = json!({
+                "recording": {
+                    "bucket": uploaded.bucket,
+                    "key": uploaded.key,
+                    "content_type": uploaded.content_type,
+                    "duration_secs": artifacts.duration_secs,
+                    "size_bytes": artifacts.size_bytes,
+                    "sample_rate_hz": artifacts.sample_rate_hz,
+                    "channels": artifacts.channels,
+                    "bits_per_sample": artifacts.bits_per_sample,
+                    "format": "wav_pcm8_mono"
+                }
+            });
+
+            if let Err(e) = CallService::merge_metadata(&db_for_recording, session_id_for_recording, patch).await {
+                tracing::warn!(error = %e, "call recording: failed to persist metadata");
             }
+
+            call_state_for_recording.set_recording_ready(
+                &call_sid_for_recording,
+                crate::services::RecordingEntry {
+                    bucket: s3_for_recording.bucket().to_string(),
+                    key,
+                    content_type: "audio/wav".to_string(),
+                    duration_secs: artifacts.duration_secs,
+                    size_bytes: artifacts.size_bytes,
+                    created_at: chrono::Utc::now(),
+                }
+            );
+
+            // best-effort cleanup local wav
+            let _ = tokio::fs::remove_file(&artifacts.wav_path).await;
         });
-
-        if let Err(e) = CallService::merge_metadata(&db_for_recording, session_id_for_recording, patch).await {
-            tracing::warn!(error = %e, "call recording: failed to persist metadata");
-        }
-
-        call_state_for_recording.set_recording_ready(
-            &call_sid_for_recording,
-            crate::services::RecordingEntry {
-                bucket: s3_for_recording.bucket().to_string(),
-                key,
-                content_type: "audio/wav".to_string(),
-                duration_secs: artifacts.duration_secs,
-                size_bytes: artifacts.size_bytes,
-                created_at: chrono::Utc::now(),
-            }
-        );
-
-        // best-effort cleanup local wav
-        let _ = tokio::fs::remove_file(&artifacts.wav_path).await;
-    });
+        Some(rec_tx)
+    } else {
+        None
+    };
 
     // Channels for audio flow
     let (twilio_tx, mut twilio_rx) = mpsc::channel::<String>(200);
@@ -358,7 +392,9 @@ async fn handle_xai_stream(
             let sid = stream_sid_for_sender.read().await.clone();
             if !sid.is_empty() {
                 // record only what we actually send
-                let _ = rec_tx_for_sender.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
+                if let Some(tx) = rec_tx_for_sender.as_ref() {
+                    let _ = tx.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
+                }
                 let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
                 if let Ok(json) = serde_json::to_string(&msg) {
                     if ws_out_tx.send(json).await.is_err() {
@@ -652,7 +688,9 @@ async fn handle_xai_stream(
                 if *external_shutdown_rx.borrow() {
                     tracing::info!("external shutdown requested (twilio status callback)");
                     let _ = shutdown_tx.send(true);
-                    let _ = rec_tx.try_send(RecEvt::End);
+                    if let Some(tx) = rec_tx.as_ref() {
+                        let _ = tx.try_send(RecEvt::End);
+                    }
                     break;
                 }
             }
@@ -740,17 +778,23 @@ async fn handle_xai_stream(
                                         if xai_audio_tx.send(media.payload.clone()).await.is_err() {
                                             tracing::warn!("xai audio channel closed; ending twilio stream loop");
                                             let _ = shutdown_tx.send(true);
-                                            let _ = rec_tx.try_send(RecEvt::End);
+                                            if let Some(tx) = rec_tx.as_ref() {
+                                                let _ = tx.try_send(RecEvt::End);
+                                            }
                                             break;
                                         }
 
                                         // record without decoding
-                                        let _ = rec_tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
+                                        if let Some(tx) = rec_tx.as_ref() {
+                                            let _ = tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
+                                        }
                                     }
                                     TwilioStreamMessage::Stop { .. } => {
                                         tracing::info!("Stream stopped");
                                         let _ = shutdown_tx.send(true);
-                                        let _ = rec_tx.try_send(RecEvt::End);
+                                        if let Some(tx) = rec_tx.as_ref() {
+                                            let _ = tx.try_send(RecEvt::End);
+                                        }
                                         break;
                                     }
                                     _ => {}
@@ -768,13 +812,17 @@ async fn handle_xai_stream(
                     Some(Ok(axum::extract::ws::Message::Close(_))) => {
                         tracing::info!("WebSocket closed");
                         let _ = shutdown_tx.send(true);
-                        let _ = rec_tx.try_send(RecEvt::End);
+                        if let Some(tx) = rec_tx.as_ref() {
+                            let _ = tx.try_send(RecEvt::End);
+                        }
                         break;
                     }
                     Some(Err(e)) => {
                         tracing::error!("WebSocket error: {}", e);
                         let _ = shutdown_tx.send(true);
-                        let _ = rec_tx.try_send(RecEvt::End);
+                        if let Some(tx) = rec_tx.as_ref() {
+                            let _ = tx.try_send(RecEvt::End);
+                        }
                         break;
                     }
                     None => break,
@@ -847,84 +895,89 @@ async fn handle_gemini_stream(
         End,
     }
 
-    let (rec_tx, mut rec_rx) = mpsc::channel::<RecEvt>(2000);
-    let call_sid_for_recording = call_sid.to_string();
-    let session_id_for_recording = session_id;
-    let db_for_recording = state.db.clone();
-    let s3_for_recording = state.call_recordings.clone();
-    let call_state_for_recording = state.call_state.clone();
-    tokio::spawn(async move {
-        let mut recorder = match CallAudioRecorder::new(&call_sid_for_recording).await {
-            Ok(r) => r,
-            Err(e) => {
-                tracing::warn!(error = %e, "call recording: failed to init recorder");
-                return;
-            }
-        };
-
-        while let Some(evt) = rec_rx.recv().await {
-            match evt {
-                RecEvt::UserUlawB64(b64) => {
-                    let _ = recorder.write_user_ulaw_b64(&b64).await;
+    let rec_tx: Option<mpsc::Sender<RecEvt>> = if ENABLE_CALL_RECORDING {
+        let (rec_tx, mut rec_rx) = mpsc::channel::<RecEvt>(2000);
+        let call_sid_for_recording = call_sid.to_string();
+        let session_id_for_recording = session_id;
+        let db_for_recording = state.db.clone();
+        let s3_for_recording = state.call_recordings.clone();
+        let call_state_for_recording = state.call_state.clone();
+        tokio::spawn(async move {
+            let mut recorder = match CallAudioRecorder::new(&call_sid_for_recording).await {
+                Ok(r) => r,
+                Err(e) => {
+                    tracing::warn!(error = %e, "call recording: failed to init recorder");
+                    return;
                 }
-                RecEvt::AssistantUlawB64(b64) => {
-                    let _ = recorder.write_assistant_ulaw_b64(&b64).await;
+            };
+
+            while let Some(evt) = rec_rx.recv().await {
+                match evt {
+                    RecEvt::UserUlawB64(b64) => {
+                        let _ = recorder.write_user_ulaw_b64(&b64).await;
+                    }
+                    RecEvt::AssistantUlawB64(b64) => {
+                        let _ = recorder.write_assistant_ulaw_b64(&b64).await;
+                    }
+                    RecEvt::End => break,
                 }
-                RecEvt::End => break,
             }
-        }
 
-        let artifacts = match recorder.finish().await {
-            Ok(a) => a,
-            Err(e) => {
-                tracing::warn!(error = %e, "call recording: failed to finalize wav");
-                return;
-            }
-        };
+            let artifacts = match recorder.finish().await {
+                Ok(a) => a,
+                Err(e) => {
+                    tracing::warn!(error = %e, "call recording: failed to finalize wav");
+                    return;
+                }
+            };
 
-        let key = s3_for_recording.key_for_call(&call_sid_for_recording);
-        let uploaded = match s3_for_recording.upload_wav_path(&key, &artifacts.wav_path).await {
-            Ok(u) => u,
-            Err(e) => {
-                tracing::warn!(error = %e, "call recording: s3 upload failed");
-                return;
-            }
-        };
+            let key = s3_for_recording.key_for_call(&call_sid_for_recording);
+            let uploaded = match s3_for_recording.upload_wav_path(&key, &artifacts.wav_path).await {
+                Ok(u) => u,
+                Err(e) => {
+                    tracing::warn!(error = %e, "call recording: s3 upload failed");
+                    return;
+                }
+            };
 
-        // Persist into call_sessions.metadata without clobbering prompt/config metadata.
-        let patch = json!({
-            "recording": {
-                "bucket": uploaded.bucket,
-                "key": uploaded.key,
-                "content_type": uploaded.content_type,
-                "duration_secs": artifacts.duration_secs,
-                "size_bytes": artifacts.size_bytes,
-                "sample_rate_hz": artifacts.sample_rate_hz,
-                "channels": artifacts.channels,
-                "bits_per_sample": artifacts.bits_per_sample,
-                "format": "wav_pcm8_mono"
+            // Persist into call_sessions.metadata without clobbering prompt/config metadata.
+            let patch = json!({
+                "recording": {
+                    "bucket": uploaded.bucket,
+                    "key": uploaded.key,
+                    "content_type": uploaded.content_type,
+                    "duration_secs": artifacts.duration_secs,
+                    "size_bytes": artifacts.size_bytes,
+                    "sample_rate_hz": artifacts.sample_rate_hz,
+                    "channels": artifacts.channels,
+                    "bits_per_sample": artifacts.bits_per_sample,
+                    "format": "wav_pcm8_mono"
+                }
+            });
+
+            if let Err(e) = CallService::merge_metadata(&db_for_recording, session_id_for_recording, patch).await {
+                tracing::warn!(error = %e, "call recording: failed to persist metadata");
             }
+
+            call_state_for_recording.set_recording_ready(
+                &call_sid_for_recording,
+                crate::services::RecordingEntry {
+                    bucket: s3_for_recording.bucket().to_string(),
+                    key,
+                    content_type: "audio/wav".to_string(),
+                    duration_secs: artifacts.duration_secs,
+                    size_bytes: artifacts.size_bytes,
+                    created_at: chrono::Utc::now(),
+                }
+            );
+
+            // best-effort cleanup local wav
+            let _ = tokio::fs::remove_file(&artifacts.wav_path).await;
         });
-
-        if let Err(e) = CallService::merge_metadata(&db_for_recording, session_id_for_recording, patch).await {
-            tracing::warn!(error = %e, "call recording: failed to persist metadata");
-        }
-
-        call_state_for_recording.set_recording_ready(
-            &call_sid_for_recording,
-            crate::services::RecordingEntry {
-                bucket: s3_for_recording.bucket().to_string(),
-                key,
-                content_type: "audio/wav".to_string(),
-                duration_secs: artifacts.duration_secs,
-                size_bytes: artifacts.size_bytes,
-                created_at: chrono::Utc::now(),
-            }
-        );
-
-        // best-effort cleanup local wav
-        let _ = tokio::fs::remove_file(&artifacts.wav_path).await;
-    });
+        Some(rec_tx)
+    } else {
+        None
+    };
 
     // Channels for audio flow
     let (twilio_tx, mut twilio_rx) = mpsc::channel::<String>(200);
@@ -948,7 +1001,9 @@ async fn handle_gemini_stream(
             let sid = stream_sid_for_sender.read().await.clone();
             if !sid.is_empty() {
                 // record only what we actually send (so barge-in suppressed audio doesn't appear in playback)
-                let _ = rec_tx_for_sender.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
+                if let Some(tx) = rec_tx_for_sender.as_ref() {
+                    let _ = tx.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
+                }
                 // barge-in hangover: mark "assistant speaking recently" when we actually send audio
                 let now_ms = std::time::SystemTime::now()
                     .duration_since(std::time::UNIX_EPOCH)
@@ -1428,7 +1483,9 @@ async fn handle_gemini_stream(
                 if *external_shutdown_rx.borrow() {
                     tracing::info!("external shutdown requested (twilio status callback)");
                     let _ = shutdown_tx.send(true);
-                    let _ = rec_tx.try_send(RecEvt::End);
+                    if let Some(tx) = rec_tx.as_ref() {
+                        let _ = tx.try_send(RecEvt::End);
+                    }
                     break;
                 }
             }
@@ -1513,12 +1570,16 @@ async fn handle_gemini_stream(
                                         if gemini_audio_tx.send(media.payload.clone()).await.is_err() {
                                             tracing::warn!("gemini audio channel closed; ending twilio stream loop");
                                             let _ = shutdown_tx.send(true);
-                                            let _ = rec_tx.try_send(RecEvt::End);
+                                            if let Some(tx) = rec_tx.as_ref() {
+                                                let _ = tx.try_send(RecEvt::End);
+                                            }
                                             break;
                                         }
 
                                         // 2) enqueue recording without decoding (secondary path)
-                                        let _ = rec_tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
+                                        if let Some(tx) = rec_tx.as_ref() {
+                                            let _ = tx.try_send(RecEvt::UserUlawB64(media.payload.clone()));
+                                        }
 
                                         // 3) local barge-in (decode only when assistant is speaking)
                                         let now_ms = std::time::SystemTime::now()
@@ -1574,7 +1635,9 @@ async fn handle_gemini_stream(
                                     TwilioStreamMessage::Stop { .. } => {
                                         tracing::info!("Stream stopped");
                                         let _ = shutdown_tx.send(true);
-                                        let _ = rec_tx.try_send(RecEvt::End);
+                                        if let Some(tx) = rec_tx.as_ref() {
+                                            let _ = tx.try_send(RecEvt::End);
+                                        }
                                         break;
                                     }
                                     _ => {}
@@ -1592,13 +1655,17 @@ async fn handle_gemini_stream(
                     Some(Ok(axum::extract::ws::Message::Close(_))) => {
                         tracing::info!("WebSocket closed");
                         let _ = shutdown_tx.send(true);
-                        let _ = rec_tx.try_send(RecEvt::End);
+                        if let Some(tx) = rec_tx.as_ref() {
+                            let _ = tx.try_send(RecEvt::End);
+                        }
                         break;
                     }
                     Some(Err(e)) => {
                         tracing::error!("WebSocket error: {}", e);
                         let _ = shutdown_tx.send(true);
-                        let _ = rec_tx.try_send(RecEvt::End);
+                        if let Some(tx) = rec_tx.as_ref() {
+                            let _ = tx.try_send(RecEvt::End);
+                        }
                         break;
                     }
                     None => break,
@@ -2102,40 +2169,50 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
     ));
     
     // Fetch caregiver relationship notes if available
-    if let Ok(Some(relationship)) = CaregiverRepository::get_relationship(
-        &state.db, elder.caregiver_id, elder.id
-    ).await {
-        let mut rel_info = format!(
-            "## Contexto del Cuidador\nEl cuidador principal es su **{}**.",
-            relationship.relationship
-        );
-        if let Some(notes) = relationship.notes {
-            if !notes.is_empty() {
-                rel_info.push_str(&format!("\nNotas importantes: {}", notes));
+    match CaregiverRepository::get_relationship(&state.db, elder.caregiver_id, elder.id).await {
+        Ok(Some(relationship)) => {
+            let mut rel_info = format!(
+                "## Contexto del Cuidador\nEl cuidador principal es su **{}**.",
+                relationship.relationship
+            );
+            if let Some(notes) = relationship.notes {
+                if !notes.is_empty() {
+                    rel_info.push_str(&format!("\nNotas importantes: {}", notes));
+                }
             }
+            context_parts.push(rel_info);
         }
-        context_parts.push(rel_info);
+        Ok(None) => {}
+        Err(e) => {
+            tracing::warn!(error = %e, elder_id = %elder.id, "voice context: failed to load caregiver relationship");
+        }
     }
     
     // Fetch and add contacts
-    if let Ok(contacts) = ContactService::get_all_contacts(&state.db, elder.id).await {
-        if !contacts.is_empty() {
-            let mut contact_list = String::from("## Contactos Guardados\nPara transferir una llamada, usa call_contact con el nombre EXACTO:\n");
-            for c in &contacts {
-                let emergency = if c.is_emergency { " ⚠️ EMERGENCIA" } else { "" };
-                let notes = c.notes.as_deref().map(|n| format!(" - {}", n)).unwrap_or_default();
-                contact_list.push_str(&format!(
-                    "- **{}** ({}){}:{}\n",
-                    c.name, c.relationship, emergency, notes
-                ));
+    match ContactService::get_all_contacts(&state.db, elder.id).await {
+        Ok(contacts) => {
+            if !contacts.is_empty() {
+                let mut contact_list = String::from("## Contactos Guardados\nPara transferir una llamada, usa call_contact con el nombre EXACTO:\n");
+                for c in &contacts {
+                    let emergency = if c.is_emergency { " ⚠️ EMERGENCIA" } else { "" };
+                    let notes = c.notes.as_deref().map(|n| format!(" - {}", n)).unwrap_or_default();
+                    contact_list.push_str(&format!(
+                        "- **{}** ({}){}:{}\n",
+                        c.name, c.relationship, emergency, notes
+                    ));
+                }
+                context_parts.push(contact_list);
             }
-            context_parts.push(contact_list);
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, elder_id = %elder.id, "voice context: failed to load contacts");
         }
     }
     
     // Fetch and add locations (separated by type)
-    if let Ok(locations) = LocationService::get_all_locations(&state.db, elder.id).await {
-        if !locations.is_empty() {
+    match LocationService::get_all_locations(&state.db, elder.id).await {
+        Ok(locations) => {
+            if !locations.is_empty() {
             // Destinations (places to go)
             let destinations: Vec<_> = locations.iter()
                 .filter(|l| l.location_type == LocationType::Destination)
@@ -2178,11 +2255,16 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
                 context_parts.push(spots_list);
             }
         }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, elder_id = %elder.id, "voice context: failed to load locations");
+        }
     }
     
     // Fetch and add medications - FULL details in context (no tool needed)
-    if let Ok(meds) = MedicationService::get_all_medications(&state.db, elder.id).await {
-        if !meds.is_empty() {
+    match MedicationService::get_all_medications(&state.db, elder.id).await {
+        Ok(meds) => {
+            if !meds.is_empty() {
             let mut med_list = String::from("## Medicamentos (Información Completa)\n");
             med_list.push_str("IMPORTANTE: Usa SOLO esta información para responder preguntas sobre medicamentos. NO inventes información.\n\n");
             
@@ -2206,8 +2288,13 @@ async fn build_dynamic_prompt(state: &AppState, elder: &Elder) -> String {
                 med_list.push('\n');
             }
             context_parts.push(med_list);
-        } else {
-            context_parts.push("## Medicamentos\nNo hay medicamentos registrados.".to_string());
+            } else {
+                context_parts.push("## Medicamentos\nNo hay medicamentos registrados.".to_string());
+            }
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, elder_id = %elder.id, "voice context: failed to load medications");
+            context_parts.push("## Medicamentos\nERROR: no se pudieron cargar los medicamentos por un error del sistema.".to_string());
         }
     }
     
