@@ -3,7 +3,6 @@
 use std::sync::Arc;
 use std::collections::VecDeque;
 use std::sync::atomic::{AtomicBool, Ordering};
-use std::sync::atomic::AtomicU64;
 use axum::{
     extract::{Path, State, WebSocketUpgrade},
     response::IntoResponse,
@@ -878,11 +877,8 @@ async fn handle_gemini_stream(
     let stream_sid_clone = stream_sid.clone();
 
     // Barge-in state: when true, we suppress outbound AI audio to Twilio.
+    // Controlled by Gemini's `interrupted` signal (server-side VAD).
     let suppress_outbound_audio = Arc::new(AtomicBool::new(false));
-    // Whether the assistant is currently speaking (heuristic set by model audio output).
-    let assistant_speaking = Arc::new(AtomicBool::new(false));
-    // Millis since UNIX epoch when we last actually sent assistant audio to Twilio.
-    let last_assistant_audio_sent_ms = Arc::new(AtomicU64::new(0));
 
     // Shared transcript accumulator (optional, only for DB transcript field)
     let transcript = Arc::new(tokio::sync::Mutex::new(String::new()));
@@ -994,26 +990,19 @@ async fn handle_gemini_stream(
     // Outbound audio task: send Twilio outbound media frames
     let stream_sid_for_sender = stream_sid.clone();
     let suppress_for_sender = suppress_outbound_audio.clone();
-    let last_sent_for_sender = last_assistant_audio_sent_ms.clone();
     let rec_tx_for_sender = rec_tx.clone();
     let outbound_audio_handle = tokio::spawn(async move {
         while let Some(audio_base64) = twilio_rx.recv().await {
             if suppress_for_sender.load(Ordering::Relaxed) {
-                // barge-in: drop any queued assistant audio
+                // barge-in: drop any queued assistant audio (Gemini sent `interrupted`)
                 continue;
             }
             let sid = stream_sid_for_sender.read().await.clone();
             if !sid.is_empty() {
-                // record only what we actually send (so barge-in suppressed audio doesn't appear in playback)
+                // Record only what we actually send (so suppressed audio doesn't appear in playback)
                 if let Some(tx) = rec_tx_for_sender.as_ref() {
                     let _ = tx.try_send(RecEvt::AssistantUlawB64(audio_base64.clone()));
                 }
-                // barge-in hangover: mark "assistant speaking recently" when we actually send audio
-                let now_ms = std::time::SystemTime::now()
-                    .duration_since(std::time::UNIX_EPOCH)
-                    .map(|d| d.as_millis() as u64)
-                    .unwrap_or(0);
-                last_sent_for_sender.store(now_ms, Ordering::Relaxed);
 
                 let msg = TwilioOutboundMedia::new(&sid, &audio_base64);
                 if let Ok(json) = serde_json::to_string(&msg) {
@@ -1031,7 +1020,6 @@ async fn handle_gemini_stream(
     let tool_ctx_clone = tool_ctx.clone();
     let gemini_overrides = gemini_overrides.clone();
     let suppress_outbound_audio_clone = suppress_outbound_audio.clone();
-    let assistant_speaking_clone = assistant_speaking.clone();
     let clear_buffer_tx_clone = clear_buffer_tx.clone();
     let mut shutdown_rx_gemini = shutdown_rx.clone();
     let gemini_handle = tokio::spawn(async move {
@@ -1328,7 +1316,6 @@ async fn handle_gemini_stream(
                                 tracing::debug!("Gemini Live: interrupted signal received, clearing buffer");
                                 // Immediately suppress any pending outbound audio
                                 suppress_outbound_audio_clone.store(true, Ordering::Relaxed);
-                                assistant_speaking_clone.store(false, Ordering::Relaxed);
                                 // Signal Twilio to clear its buffer
                                 let _ = clear_buffer_tx_clone.try_send(());
                             }
@@ -1340,9 +1327,7 @@ async fn handle_gemini_stream(
                                 || content.interrupted.unwrap_or(false);
 
                             if turn_done {
-                                // model turn ended; allow outbound audio again
-                                assistant_speaking_clone.store(false, Ordering::Relaxed);
-                                // Only un-suppress after interrupted if we're done with the turn
+                                // Model turn ended; allow outbound audio again
                                 suppress_outbound_audio_clone.store(false, Ordering::Relaxed);
 
                                 if let Some(final_text) = maybe_commit_final(
@@ -1364,8 +1349,8 @@ async fn handle_gemini_stream(
                                     if let Some(inline) = part.inline_data {
                                         // Only handle audio payloads for now.
                                         if inline.mime_type.starts_with("audio/pcm") {
-                                            assistant_speaking_clone.store(true, Ordering::Relaxed);
                                             if suppress_outbound_audio_clone.load(Ordering::Relaxed) {
+                                                // Barge-in active: skip sending this audio
                                                 continue;
                                             }
                                             let pcm24 = match base64::engine::general_purpose::STANDARD.decode(inline.data.as_bytes()) {
