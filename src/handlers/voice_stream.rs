@@ -22,7 +22,11 @@ use crate::clients::{
     AgentConfig, ServerMessage as ElevenLabsServerMessage,
     build_elevenlabs_tools, ELEVENLABS_SYSTEM_PROMPT,
     gemini_live::GeminiLiveSetupOverrides,
-    audio::{twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes, gemini_pcm16_24khz_bytes_to_twilio_ulaw_base64},
+    audio::{
+        twilio_ulaw_base64_to_gemini_pcm16_16khz_bytes,
+        gemini_pcm16_24khz_bytes_to_twilio_ulaw_base64,
+        ulaw_to_pcm16,
+    },
     XaiSessionUpdate,
     XaiSessionConfig,
     XaiTurnDetection,
@@ -374,6 +378,13 @@ async fn handle_xai_stream(
     let xai_handle = tokio::spawn(async move {
         use std::collections::VecDeque;
 
+        let mut xai_speech_started: u64 = 0;
+        let mut xai_speech_stopped: u64 = 0;
+        let mut xai_input_transcripts: u64 = 0;
+        let mut xai_output_audio_deltas: u64 = 0;
+        let mut xai_output_audio_bytes_b64: u64 = 0;
+        let mut xai_last_input_transcript: Option<String> = None;
+
         // Build tool declarations from our MCP registry.
         let tools: Vec<crate::mcp::ToolDefinition> = crate::mcp::ToolRegistry::list_tools();
         let tool_cfgs: Vec<XaiToolConfig> = tools
@@ -477,6 +488,12 @@ async fn handle_xai_stream(
                                 state_clone.call_state.set_active(&call_sid_for_xai);
                                 tracing::info!("xai realtime session.updated received");
 
+                                if !pending_audio_ulaw.is_empty() {
+                                    tracing::info!(
+                                        buffered_audio_frames = pending_audio_ulaw.len(),
+                                        "xai realtime: flushing buffered twilio audio frames after session.updated"
+                                    );
+                                }
                                 while let Some(ulaw_b64) = pending_audio_ulaw.pop_front() {
                                     let _ = session.append_audio_b64(ulaw_b64).await;
                                 }
@@ -491,7 +508,30 @@ async fn handle_xai_stream(
                         XaiServerEvent::ConversationCreated { .. } => {
                             tracing::debug!("xai realtime conversation.created");
                         }
+                        XaiServerEvent::InputAudioBufferSpeechStarted { item_id, .. } => {
+                            xai_speech_started = xai_speech_started.saturating_add(1);
+                            tracing::debug!(
+                                count = xai_speech_started,
+                                item_id = %item_id,
+                                "xai realtime: vad speech_started"
+                            );
+                        }
+                        XaiServerEvent::InputAudioBufferSpeechStopped { item_id, .. } => {
+                            xai_speech_stopped = xai_speech_stopped.saturating_add(1);
+                            tracing::debug!(
+                                count = xai_speech_stopped,
+                                item_id = %item_id,
+                                "xai realtime: vad speech_stopped"
+                            );
+                        }
                         XaiServerEvent::ConversationItemInputAudioTranscriptionCompleted { transcript, .. } => {
+                            xai_input_transcripts = xai_input_transcripts.saturating_add(1);
+                            xai_last_input_transcript = Some(transcript.clone());
+                            tracing::info!(
+                                count = xai_input_transcripts,
+                                transcript = %transcript,
+                                "xai realtime: input transcription completed"
+                            );
                             state_clone.call_state.add_transcript(
                                 &call_sid_for_xai,
                                 Speaker::User,
@@ -526,6 +566,16 @@ async fn handle_xai_stream(
                             current_assistant_text.clear();
                         }
                         XaiServerEvent::ResponseOutputAudioDelta { delta, .. } => {
+                            xai_output_audio_deltas = xai_output_audio_deltas.saturating_add(1);
+                            xai_output_audio_bytes_b64 = xai_output_audio_bytes_b64.saturating_add(delta.len() as u64);
+                            if xai_output_audio_deltas % 50 == 0 {
+                                tracing::debug!(
+                                    deltas = xai_output_audio_deltas,
+                                    total_b64_chars = xai_output_audio_bytes_b64,
+                                    last_input_transcript = ?xai_last_input_transcript,
+                                    "xai realtime: outbound audio deltas flowing"
+                                );
+                            }
                             let _ = twilio_tx.send(delta).await;
                         }
                         XaiServerEvent::ResponseFunctionCallArgumentsDone { name, call_id, arguments, .. } => {
@@ -592,6 +642,9 @@ async fn handle_xai_stream(
 
     // Twilio websocket loop (provider-agnostic plumbing)
     let mut twilio_media_dropped_outbound: u64 = 0;
+    let mut twilio_media_frames_inbound: u64 = 0;
+    let mut last_twilio_audio_avg_abs: i32 = -1;
+    let mut last_twilio_audio_max_abs: i32 = -1;
     let mut logged_twilio_parse_error = false;
     loop {
         tokio::select! {
@@ -624,6 +677,11 @@ async fn handle_xai_stream(
                                             channels = start.media_format.channels,
                                             "Stream started"
                                         );
+                                        tracing::info!(
+                                            encoding = %start.media_format.encoding,
+                                            sample_rate = start.media_format.sample_rate,
+                                            "xai realtime: configured for audio/pcmu passthrough (twilio should be audio/x-mulaw@8khz)"
+                                        );
 
                                         // trigger a greeting shortly after connect
                                         let greeting_tx = xai_audio_tx.clone();
@@ -643,6 +701,39 @@ async fn handle_xai_stream(
                                             Some(other) => {
                                                 tracing::debug!(track = %other, "twilio media: unknown track; treating as inbound");
                                             }
+                                        }
+
+                                        twilio_media_frames_inbound = twilio_media_frames_inbound.saturating_add(1);
+
+                                        // low-frequency sanity sampling of inbound audio energy to catch "i'm talking but nothing arrives"
+                                        if twilio_media_frames_inbound % 80 == 0 {
+                                            // 80 frames ~= 1.6s if 20ms frames
+                                            if let Ok(ulaw) = base64::engine::general_purpose::STANDARD.decode(media.payload.as_bytes()) {
+                                                let pcm = ulaw_to_pcm16(&ulaw);
+                                                if !pcm.is_empty() {
+                                                    let mut acc: i64 = 0;
+                                                    let mut mx: i32 = 0;
+                                                    for &s in &pcm {
+                                                        let a = (s as i32).abs();
+                                                        acc += a as i64;
+                                                        if a > mx { mx = a; }
+                                                    }
+                                                    last_twilio_audio_avg_abs = (acc / (pcm.len() as i64)) as i32;
+                                                    last_twilio_audio_max_abs = mx;
+                                                } else {
+                                                    last_twilio_audio_avg_abs = 0;
+                                                    last_twilio_audio_max_abs = 0;
+                                                }
+                                            }
+
+                                            tracing::debug!(
+                                                inbound_frames = twilio_media_frames_inbound,
+                                                dropped_outbound = twilio_media_dropped_outbound,
+                                                payload_b64_len = media.payload.len(),
+                                                avg_abs = last_twilio_audio_avg_abs,
+                                                max_abs = last_twilio_audio_max_abs,
+                                                "xai realtime: twilio inbound audio sanity"
+                                            );
                                         }
 
                                         // feed xai
