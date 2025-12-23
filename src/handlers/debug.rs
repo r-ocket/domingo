@@ -187,6 +187,16 @@ pub struct InitiateCallRequest {
     /// Optional Gemini Live setup overrides (generationConfig / VAD / transcription knobs)
     #[serde(default)]
     pub gemini: Option<GeminiLiveDebugConfig>,
+    /// Optional xAI Grok per-call config (voice selection, etc.)
+    #[serde(default)]
+    pub xai: Option<XaiDebugConfig>,
+}
+
+#[derive(Debug, Deserialize, Default)]
+pub struct XaiDebugConfig {
+    /// Voice selection: Ara, Rex, Sal, Eve, Leo
+    #[serde(default)]
+    pub voice: Option<String>,
 }
 
 #[derive(Debug, Deserialize, Default)]
@@ -250,7 +260,9 @@ pub async fn initiate_call(
             "transcriptionConfig": req.gemini.as_ref().and_then(|g| g.transcription_config.clone()),
         },
         // xai per-call overrides (expanded later by ui)
-        "xai": {}
+        "xai": {
+            "voice": req.xai.as_ref().and_then(|x| x.voice.clone())
+        }
     });
     state.call_state.set_pending_call_config(call_response.sid.clone(), per_call_config);
 

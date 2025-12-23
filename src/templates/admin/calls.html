@@ -47,6 +47,19 @@
                                 <p class="form-hint text-xs mt-1" x-show="callForm.voice_provider === 'xai_grok'">
                                     xai grok voice agent (realtime) + tools
                                 </p>
+                                <div class="mt-2" x-show="callForm.voice_provider === 'xai_grok'">
+                                    <label class="form-label text-xs">voz</label>
+                                    <select x-model="callForm.xai.voice" class="form-select">
+                                        <option value="Ara">Ara (warm, friendly)</option>
+                                        <option value="Rex">Rex (confident, clear)</option>
+                                        <option value="Sal">Sal (neutral, smooth)</option>
+                                        <option value="Eve">Eve (energetic)</option>
+                                        <option value="Leo">Leo (authoritative)</option>
+                                    </select>
+                                    <p class="form-hint text-xs mt-1 text-stone-500">
+                                        sent as call_sessions.metadata.xai.voice (per-call override)
+                                    </p>
+                                </div>
                                 <p class="form-hint text-xs mt-1 text-stone-500">
                                     default: xai grok
                                 </p>
@@ -63,7 +76,7 @@
                                     tip: usa esto para experimentar con estilo/tono, uso de tools, etc., sin redeploy.
                                 </p>
                             </div>
-                            <details class="rounded border border-surface-700/50 bg-surface-800/30 p-3">
+                            <details class="rounded border border-surface-700/50 bg-surface-800/30 p-3" x-show="callForm.voice_provider === 'gemini_live'">
                                 <summary class="cursor-pointer text-sm text-stone-200">config gemini live (avanzado)</summary>
                                 <div class="mt-3 space-y-3">
                                     <div class="grid grid-cols-2 gap-3">
@@ -409,6 +422,9 @@ function callCenter() {
             elder_id: '',
             voice_provider: 'xai_grok',
             prompt_override: '',
+            xai: {
+                voice: 'Ara',
+            },
             gemini: {
                 generationConfig: {
                     temperature: 0.7,
@@ -726,6 +742,14 @@ function callCenter() {
                     delete payload.gemini.advancedTranscriptionConfigJson;
                 }
 
+                // provider-specific config: don't send irrelevant blobs
+                if (payload.voice_provider !== 'gemini_live') {
+                    delete payload.gemini;
+                }
+                if (payload.voice_provider !== 'xai_grok') {
+                    delete payload.xai;
+                }
+
                 const res = await fetch('/debug/call-elder', {
                     method: 'POST',
                     headers: { 'Content-Type': 'application/json' },
@@ -739,6 +763,7 @@ function callCenter() {
                 } else {
                     this.callForm.elder_id = '';
                     this.callForm.voice_provider = 'xai_grok';
+                    this.callForm.xai.voice = 'Ara';
                     this.callForm.prompt_override = '';
                     // The SSE will handle adding the call to the list
                 }
@@ -786,6 +811,7 @@ function callCenter() {
 
         voiceProviderLabel(provider) {
             const labels = {
+                'xai_grok': 'Grok (xAI)',
                 'gemini_live': 'Gemini Live',
                 'openai_realtime': 'GPT-Realtime',
                 'elevenlabs': 'ElevenLabs'
